@@ -2,8 +2,7 @@
   "schema_version": 1,
   "adapter": "gas",
   "gas": {
-    "webapp_url": "https://script.google.com/macros/s/YOUR_SCRIPT_ID/exec",
-    "letters_folder": "G:\\My Drive\\dear-oracle\\letters",
+    "webapp_url": "https://script.google.com/macros/s/AKfycbyR_9A8ZBfJYR5bV6zBOlwIZcoaMFBYU3FB-f-Mj0FJi2_sP4ERpUQAmKBIE027wZBS2w/exec",
     "to": "your@email.com",
     "subject_prefix": "Dear Oracle"
   },
@@ -14,5 +13,6 @@
     "password_env": "SMTP_PASSWORD",
     "to": "your@email.com",
     "subject_prefix": "Dear Oracle"
-  }
+  },
+  "drive_letters_path": "G:\\My Drive\\dear-oracle-letters"
 }
