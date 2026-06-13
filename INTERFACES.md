@@ -1,4 +1,4 @@
-# Dear Oracle — INTERFACES.md (v0.2)
+# Dear Oracle — INTERFACES.md (v0.3)
 
 > The contract document. No code is written against assumptions not recorded here.
 > Companion to PRFAQ v0.7. Reflects Grill Me deltas D1–D40.
@@ -11,6 +11,11 @@
 Default = **Polymarket**. Two API surfaces, kept separate:
 - **Gamma** (`gamma-api.polymarket.com`) — reads/search/tags/events. Unauthenticated. The primary surface; satisfies the "zero API key" promise.
 - **CLOB** (`clob.polymarket.com`) — `/prices-history` (missed-day backfill) and resolution fields only. Also keyless for reads. Limited, well-bounded use.
+
+**Spike B verdict (PASS, 2026-06-13 — locked):**
+- *Resolution*: Polymarket's `resolved` field is **null** — do NOT use it. Resolution = `closed == true` AND `outcomePrices`/token price ∈ {0, 1}. This is the Brier `o_i` source.
+- *Basket timing*: all constituent markets of a multi-outcome event close together (verified: Presidential 2024, 6/6 markets). A basket is scored only when every market is `closed`.
+- *`/prices-history` key*: requires the numeric **`clobTokenIds`** (uint256) as the market identifier — NOT the hex `conditionId`. Returns `{"t": timestamp, "p": float}` points.
 
 User-facing copy never names either (D14d). Adapter name appears only in technical docs.
 
@@ -32,6 +37,28 @@ Nested `outcomes[]` so a multi-outcome basket (e.g. World Cup) is native. Layer 
   "generated_at": "2026-06-13T05:00:00+10:00",
   "coverage_transitions": [
     { "interest": "surfing", "from": "dormant", "to": "active" }
+  ],
+  "standings": [
+    {
+      "event_id": "16085",
+      "event_title": "2026 World Cup — winner",
+      "interest_tag": "soccer",
+      "is_binary": false,
+      "top_outcomes": [
+        { "label": "Spain",     "prob_now": 0.30, "delta_24h_pp": 2.0 },
+        { "label": "England",   "prob_now": 0.20, "delta_24h_pp": null },
+        { "label": "Argentina", "prob_now": 0.10, "delta_24h_pp": -1.0 }
+      ]
+    },
+    {
+      "event_id": "9001",
+      "event_title": "Fed rate cut by September",
+      "interest_tag": "economy",
+      "is_binary": true,
+      "top_outcomes": [
+        { "label": "Yes", "prob_now": 0.68, "delta_24h_pp": null }
+      ]
+    }
   ],
   "signals": [
     {
@@ -68,6 +95,7 @@ Field rules:
 - `url`: per outcome — powers the letter's "read more" and P.S. routing (D16).
 - `volume_usd`: included so the AI judges conviction-vs-noise without a second API call.
 - `coverage_transitions[]`: deterministically computed from yesterday's vs today's interest statuses; the letter renders these as fixed phrases, AI does not decide them (D29).
+- `standings[]`: the "Where things stand" snapshot — **every** watched event, moved or not (D41). `top_outcomes` is volume/prob-sorted: for `is_binary:false` (multi-outcome, e.g. World Cup) the top 3 by prob; for `is_binary:true` the single primary outcome. Each carries `prob_now` + `delta_24h_pp` (nullable). Dormant interests are represented by their absence here (the letter prints "the markets are silent on [interest]" from the interest list, not from standings). Built deterministically by the collector from snapshots — zero extra API calls; reuses the same `aggregate()` used by the Predictor. The letter renders this as a fixed table; AI does not author it.
 - **Forward compatibility**: consumers MUST ignore unknown extra fields.
 
 The Predictor output and the prediction log mirror this `outcomes[]` shape, so Predictor / signals / log are one structure (D8, D17).
@@ -87,6 +115,7 @@ class MarketAdapter(Protocol):
 - `tags()` returns `{slug, tag_id}` pairs. `tag_id` is adapter-specific (Polymarket numeric); the *shape* is common, so a Kalshi adapter fills it from its own taxonomy. `slug` is human-readable for display; `tag_id` is the API key.
 - All methods: timeout 10s, single retry with backoff, then return empty + log. Skills degrade gracefully ("no markets found for [interest]") — never abort.
 - The same `resolve(tags) -> events` helper backs both `oracle-predictor` and `core/collector.py` (D33).
+- (Spike B) `prices_history` passes the numeric `clobTokenIds` as `market_id`, not the hex `conditionId`. `resolution` reads `closed` + price ∈ {0,1}, never the null `resolved` field.
 
 ## 4. Rate limits (documented 2026-06-13)
 
@@ -206,8 +235,8 @@ claude -p prompts/letter.md \
 - Input: the day's `market_signals[]` export. The prompt caps analysis at top 3 movers by `|delta_24h_pp|`; scenario depth defaults to 2 stages (`then -> and then`), configurable in `prompts/scenario.md`.
 - The why-section is the only step using web search (~1 search per mover, 5–10s each). If no credible source is found, the section is skipped honestly (voice block).
 - Every prompt file begins with the conservative-voice block (PRFAQ Q13).
-- **Preflight**: a `claude -p "ping"` smoke test runs first; on failure -> `run_log('auth','error',...)` and the quiet-seas form is sent.
-- **Failure / fallback**: non-zero exit, 300s timeout, or unparseable JSON -> deterministic quiet-seas plaintext from the signals export, `run_log('letter','fallback',<error>)`, delivery proceeds. (JSON-parse failure is covered here — not a new failure mode.)
+- **Preflight**: a `claude -p "ping"` smoke test runs first; on failure -> `run_log('auth','error',...)` and the deterministic fallback form (standings snapshot, no AI narrative) is sent.
+- **Failure / fallback**: non-zero exit, 300s timeout, or unparseable JSON -> deterministic fallback plaintext (Where-things-stand snapshot + transitions) from the signals export, `run_log('letter','fallback',<error>)`, delivery proceeds. (JSON-parse failure is covered here — not a new failure mode.)
 - **oracle_dryrun()** (test entry point, port of DP_dryRun): bypasses the AI call entirely, injects a canned JSON envelope fixture, runs Layer 1->3, asserts structure. Three fixtures: one mover / three movers / all-dormant. Zero Claude calls.
 
 ## 8. Delivery adapter contract (Layer 3 — D19, D20, D34, D35)
@@ -224,13 +253,10 @@ Input: `(letter_html, letter_txt, date)`. Obligation: make the full letter reada
 
 README privacy note (D36) is scoped to **only** the case of a GAS adapter deployed as "Anyone": "Use Only me; if you deploy Anyone, forwarding your digest exposes your interests." SMTP users get no such note (irrelevant — server-less).
 
-## 9. Technical spike (Sprint 0 gate — D2, D7)
+## 9. Technical spike (Sprint 0 — RESOLVED)
 
 - **Spike A — KILLED.** v0.6 went local-first; no browser component calls the market API in v1. (Revisit only if the Phase-2 static-demo deck is built — it would need a browser CORS check first.)
-- **Spike B — the only live spike (dual purpose).**
-  1. Does CLOB expose resolution cleanly (`closed` + final outcome prices) for Brier? The *real* test is **basket-resolution timing** — confirming all constituent markets of a multi-outcome event flip `resolved` together and `o_i` is extractable.
-  2. Confirm `/prices-history` works keyless for missed-day backfill.
-  FAIL on (1) -> Sprint 5 MVP fallback: manual `resolved_outcome` via `/oracle-log resolve`, or Brier deferred from v1.
+- **Spike B — PASS (2026-06-13, see §0 for the locked facts).** Resolution via `closed==true` + price ∈ {0,1} (the `resolved` field is null); basket markets close together; `/prices-history` keyed by numeric `clobTokenIds`. Brier (Sprint 5) is therefore fully automatable — no manual-resolution fallback needed. Verdict file: `docs/spike-b-verdict.md`.
 
 ## 10. Distribution (D37, D38, D39, D40)
 
@@ -252,4 +278,4 @@ config/questions.json
 - **PII (3-layer defence)**: `oracle.db` holds prediction history (raw question text + your probabilities), watched interests, and — in `run_log.detail` — local paths. No financial/health/credential data exists (no trading, no wallet, no API key). Defence: (1) whole DB gitignored; (2) README states "oracle.db is personal — never commit or share; deleting it resets the system, your interests.json survives"; (3) `run_log.detail` normalises the home directory to `~` before insert, so a gitignore slip never leaks a username.
 
 ---
-*v0.2 — 2026-06-13. Finalise Tag/Event/Market/PricePoint/Resolution dataclasses and field nullability in Sprint 0.*
+*v0.3 — 2026-06-13. Adds D41–D45: standings[] contract, Spike B verdict folded in (closed+price resolution, clobTokenIds backfill key), and the shared palette (docs/brand.md — the single source of truth for all HTML/SVG colours across every brand surface: letter, doGet, standings, deck). Finalise Tag/Event/Market/PricePoint/Resolution dataclasses in Sprint 0.*

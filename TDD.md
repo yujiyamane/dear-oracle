@@ -71,13 +71,14 @@ tests/
 - `test_reactivation`: a dormant interest gaining coverage emits a dormant->active transition.
 - `test_dormant_rescan_trigger`: `days_since_last_successful_dormant_scan>=7` (seeded in `run_log`) triggers a scan; `<7` does not. (Weekday-independent.)
 - `test_export_schema`: the exported JSON validates against INTERFACES §2 (nested outcomes, pp deltas, nullability, transitions present).
+- `test_standings_built`: from snapshots, `standings[]` includes EVERY watched event (moved or not); multi-outcome events carry top-3 `top_outcomes` with `is_binary:false`, binary events carry the single primary with `is_binary:true`; each `top_outcome` has `prob_now` + nullable `delta_24h_pp`; a dormant interest is absent from standings (rendered from the interest list instead). Reuses `aggregate()`.
 - `test_backfill_flag`: backfilled rows carry `backfilled=1`.
 - `test_threshold_triggered_by`: when both windows exceed, the larger `|delta|` window is named.
 
 ## Sprint 4 — test_pipeline.py (dryRun — ZERO Claude calls) + test_prompt_lint.py
 
 **test_pipeline.py** (inject canned envelopes via `oracle_dryrun`):
-- `test_dryrun_one_mover`: `signals_one_mover.json` + `envelope_ok.json` -> HTML+plaintext produced; digest = first 3 plaintext lines; mocked doGet serves the stored HTML.
+- `test_dryrun_one_mover`: `signals_one_mover.json` (now including a `standings[]` array) + `envelope_ok.json` -> HTML+plaintext produced; digest = first 3 plaintext lines; mocked doGet serves the stored HTML.
 - `test_fallback_on_malformed`: `envelope_malformed.txt` (fenced/garbled) -> routes to deterministic quiet-seas; `run_log('letter','fallback',...)` written; delivery still emits. (Proves D18 + D10 interplay.)
 - `test_all_dormant_shortform`: `signals_all_dormant.json` -> quiet-seas short form, no fabricated movement.
 - `test_digest_extraction`: digest is exactly the first 3 plaintext lines.

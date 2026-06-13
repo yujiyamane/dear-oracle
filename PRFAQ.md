@@ -1,7 +1,7 @@
-# Dear Oracle (DO) — PRFAQ v0.7
+# Dear Oracle (DO) — PRFAQ v0.8
 
 > *Dear Oracle — letters from the crowd*
-> Status: GRILL-COMPLETE v0.7 — 12-question Grill Me folded in (D1–D40), 2026-06-13
+> Status: BUILD-IN-PROGRESS v0.8 — Grill Me (D1–D40) + D41–D45 (standings snapshot, shared palette, Spike B PASS folded in), 2026-06-13
 > Family: Dear Keyperson (DK) · Dawn Patrol (DP) · **Dear Oracle (DO)**
 > Companion: INTERFACES.md (the contract), PLAN.md (the build), prompts/ (the voice)
 
@@ -62,9 +62,11 @@ Then what - stage 2
 Labour-market policy responses within 12-18 months; the premium
 shifts from building dashboards to orchestrating agents.
 
-Quiet seas
-World Cup odds unmoved. Starship window holds at 71%.
-The markets are still silent on surfing.
+Where things stand
+World Cup    Spain 30% (+2pp), England 20%, Argentina 10% (-1pp)
+Fed cut       Yes 68%
+Starship      71% (+3pp)
+surfing       the markets are silent
 
 New coverage: surfing markets found - now watching.
 
@@ -125,7 +127,7 @@ Yes — write a P.S. Four channels. (1) The `oracle-onboard` skill is also the e
 
 **Q9c. What happens when there is nothing to show? (zero-states + transitions, LOCKED)**
 - *Predictor, no matching market*: "The crowd hasn't priced this yet. The closest questions they have answered: [top 3 nearest matches]."
-- *All interests dormant*: you still receive a short quiet-seas letter with an invitation to browse live categories.
+- *All interests dormant*: you still receive a short letter — a "Where things stand" snapshot is the spine of every letter, so even on a fully calm day it shows the current standing of each watched event (and notes which interests are silent), with an invitation to browse live categories.
 - *First days of Monitor*: a Day-1 confirmation letter — "Letter received — your first morning letter arrives tomorrow." 24h deltas work from day 2; 7d deltas from day 8.
 - *Dormant → active* (new coverage appeared): announced once in the letter footer — "New coverage: surfing markets found — now watching" — then treated as normal from the next day.
 - *Active → dormant* (coverage ended): announced once — "Coverage ended: [interest] has no live markets — now dormant, I'll keep listening." The oracle reports both directions of the silence.
@@ -170,7 +172,7 @@ Output handoff (LOCKED): `claude -p` emits a single JSON envelope `{"html":...,"
 
 Failure envelope (LOCKED, two layers):
 - *Preflight*: before the real call, a `claude -p` smoke test captures the exit code and writes `('auth', ok|error)` to `run_log`.
-- *Fallback*: any AI-step failure (auth expiry, model unavailable, context overflow, malformed/unparseable JSON) -> the pipeline falls back to the deterministic quiet-seas plaintext built from the signals export, logs `('letter','fallback', <error>)`, and delivery proceeds. The oracle never goes silent without a trace.
+- *Fallback*: any AI-step failure (auth expiry, model unavailable, context overflow, malformed/unparseable JSON) -> the pipeline falls back to a deterministic plaintext built from the signals export (the Where-things-stand snapshot + any transitions, with no AI narrative), logs `('letter','fallback', <error>)`, and delivery proceeds. The oracle never goes silent without a trace.
 - *Dead-man's switch*: a separate check at delivery-time + 30 min verifies a letter exists for today; if not, it pings the owner regardless of cause (token / API / DNS / CLI contamination) — this catches whole-process death that the fallback cannot. Re-auth in a headless context is manual (OAuth needs a browser); the ping carries the human instruction "re-auth required: run `claude` interactively". Expected cost: a manual re-login roughly monthly, accepted under the $0 constraint and proven in Dawn Patrol operation.
 
 Granularity: ONE `claude -p` call assembles the whole letter; the prompt caps analysis at the top 3 movers by |delta|. Expected movers at default 5pp thresholds: 0–3/day.
@@ -254,7 +256,8 @@ dear-oracle/
 │   ├── gas/          # 01_dear_oracle.js + 99_test.js (doGet + MailApp)
 │   └── smtp/         # pure-python alternative (inline HTML)
 ├── docs/
-│   └── setup.md      # Task Scheduler, auth, delivery adapter, doGet access
+│   ├── setup.md      # Task Scheduler, auth, delivery adapter, doGet access
+│   └── brand.md      # the palette — single source of truth for all HTML/SVG colour
 ├── tests/            # pytest: in-memory SQLite + fixtures + dryrun + lint
 └── config/
     ├── interests.example.json
@@ -274,7 +277,7 @@ Trading or order placement of any kind. Real-time/intraday alerting. Macro Corre
 - **Sprint 1** — `oracle-predictor` (interactive skill; zero infra; works cold without interests.json).
 - **Sprint 2** — `oracle-onboard` (First letter + P.S. mode; AI tag-mapping; interest resolver in core/).
 - **Sprint 3** — Layer 1: SQLite schema + collector + deltas + rotation + coverage-transition detection + backfill + signals export (pure code, TDD against in-memory DB), Day-1 letter.
-- **Sprint 4** — Layer 2 AI + Layer 3: prompt files, Task Scheduler `claude -p` step, JSON-envelope split, `oracle_dryrun`, delivery adapter (doGet renderer + digest email / SMTP inline), quiet-seas form.
+- **Sprint 4** — Layer 2 AI + Layer 3: prompt files, Task Scheduler `claude -p` step, JSON-envelope split, `oracle_dryrun`, delivery adapter (doGet renderer + digest email / SMTP inline), deterministic fallback form.
 - **Sprint 5** — GATED on Spike B verdict: `oracle-log` + Brier + Contrarian note + usage-driven interest suggestions. Spike B FAIL on resolution -> MVP fallback decided before sprint start (manual `resolved_outcome` via `/oracle-log resolve`, or Brier deferred). The sprint does not begin with this undecided.
 Gate: PRFAQ ✅ -> UX mocks ✅ -> Grill Me ✅ (D1–D40) -> PLAN.md -> sub-agent re-review -> TDD build.
 
@@ -282,7 +285,7 @@ Gate: PRFAQ ✅ -> UX mocks ✅ -> Grill Me ✅ (D1–D40) -> PLAN.md -> sub-age
 1. Delivery channel: email default (UX decision), digest + doGet link (GAS) or inline HTML (SMTP). LOCKED.
 2. Popular-questions deck: rot-proof by construction — entries store a tag/query, not a frozen event ID; the deck resolves each to the current top-volume live event at load time (deterministic, no AI). `questions.example.json` ships 10 curated entries. LOCKED.
 3. Friend's-system contract: `market_signals[]` defined in INTERFACES.md §2 — the spine of every component. LOCKED.
-4. Letter cadence: guaranteed daily letter; quiet days get the short quiet-seas form. LOCKED.
+4. Letter cadence: guaranteed daily letter; every letter carries the Where-things-stand snapshot, so calm days still show current standings. LOCKED.
 
 ---
 

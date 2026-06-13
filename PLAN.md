@@ -13,7 +13,7 @@
 - **Determinism / AI split** is law: odds maths, resolution, deltas, Brier, transitions = pure code; why-research, scenario, letter prose = AI.
 - **Zero Claude calls in CI**: the entire pytest suite runs against in-memory SQLite + canned fixtures (`oracle_dryrun`) + static prompt lint. Golden-output (live `claude -p`) is a manual pre-ship gate only.
 - **English** for all code/docs. **PowerShell** for terminal examples. **MIT** licence.
-- **Standard palette** in the letter HTML/SVG: Charcoal Blue #264653, Verdigris #2A9D8F, Jasmine #E9C46A, Sandy Brown #F4A261, Burnt Peach #E76F51. Semantic signals separate: up #2D8659, down #C0392B, neutral #8FA3AC.
+- **Palette** for ALL HTML/SVG surfaces is defined once in `docs/brand.md` (the single source of truth — letter, doGet, standings, deck all read from it; never hardcode colour elsewhere). Core: Charcoal Blue #264653, Verdigris #2A9D8F, Jasmine #E9C46A, Sandy Brown #F4A261, Burnt Peach #E76F51. Semantic (separate): up #2D8659, down #C0392B, neutral #8FA3AC.
 
 ---
 
@@ -83,6 +83,7 @@
 - Delta computation in SQL (24h/7d) over `idx_snap_market`; null when history short.
 - `threshold_exceeded` + `threshold_triggered_by` (larger |delta|).
 - Coverage-transition detection: diff today's vs yesterday's interest statuses -> `coverage_transitions[]`.
+- Standings build: assemble `standings[]` for EVERY watched event (reuse `aggregate()`; top-3 for multi-outcome, primary for binary; per-outcome `prob_now` + `delta_24h_pp`).
 - Dormant re-scan piggyback: trigger when `days_since_last_successful_dormant_scan >= 7` (from `run_log`); demote/promote interests.
 - Backfill missed days from CLOB `/prices-history`, mark `backfilled=1`.
 - Export the day's `market_signals[]` JSON (INTERFACES §2) to `data/exports/<date>.signals.json`.
@@ -104,7 +105,7 @@
 ## Sprint 4 — Layer 2 AI + Layer 3 delivery
 
 **Scope**
-- `prompts/letter.md` (+ composed `why.md`, `scenario.md`): conservative-voice block prefix; consume the signals export; cap top-3 movers by |delta|; 2-stage scenario; emit a single JSON envelope `{"html","plaintext"}` (raw JSON, no fences). Web search only in the why-section, with the skip-if-no-credible-source rule.
+- `prompts/letter.md` (+ composed `why.md`, `scenario.md`): conservative-voice block prefix; consume the signals export; cap top-3 movers by |delta|; render the `standings[]` Where-things-stand snapshot (deterministic data, colours from docs/brand.md); 2-stage scenario; emit a single JSON envelope `{"html","plaintext"}` (raw JSON, no fences). Web search only in the why-section, with the skip-if-no-credible-source rule.
 - Python pipeline wrapper: preflight `claude -p "ping"`; run the real call; `json.loads` split; on any failure -> deterministic quiet-seas plaintext + `run_log('letter','fallback',...)`.
 - `oracle_dryrun()`: bypass AI, inject canned envelope fixtures, run Layer 1->3, assert structure.
 - Delivery — gas adapter: write HTML to the Drive-for-Desktop synced folder; `doGet?date=` read-only renderer + `?list=1`; MailApp digest (first 3 plaintext lines + link); deploy "Only me".
