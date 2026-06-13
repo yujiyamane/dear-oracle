@@ -1,7 +1,7 @@
 # Dear Oracle (DO) — PRFAQ v0.8
 
 > *Dear Oracle — letters from the crowd*
-> Status: BUILD-IN-PROGRESS v0.8 — Grill Me (D1–D40) + D41–D45 (standings snapshot, shared palette, Spike B PASS folded in), 2026-06-13
+> Status: v1 SHIPPED — Sprint 4 complete (collect → letter → Drive → doGet → email, deterministic fallback, GAS+Scheduler); AI narrative → Phase 2, 2026-06-13
 > Family: Dear Keyperson (DK) · Dawn Patrol (DP) · **Dear Oracle (DO)**
 > Companion: INTERFACES.md (the contract), PLAN.md (the build), prompts/ (the voice)
 
@@ -289,4 +289,22 @@ Gate: PRFAQ ✅ -> UX mocks ✅ -> Grill Me ✅ (D1–D40) -> PLAN.md -> sub-age
 
 ---
 
-*v0.7 — 2026-06-13. Grill Me complete: 12 questions, 40 design deltas (D1–D40), 4 rebutted with data (rate limits ample; cost = subscription quota not API spend; INTERFACES.md exists — feed both files to every review; SMTP is server-less so its access-model question dissolves). Next: PLAN.md → sub-agent re-review → TDD build.*
+---
+
+## Phase 2 — AI-authored narrative letter
+
+**Problem (observed in Sprint 4):** The `claude -p prompts/letter.md` step blocks for the full 300 s timeout on the owner's PC because invoking `claude` from a scheduled task loads the complete Claude Code session — skills, MCP servers, memory system, and interactive permission prompts — before the model call even begins. The deterministic fallback fires reliably; the AI narrative never completes.
+
+**Hypothesis:** Run the letter call with a clean, minimal config so it starts in seconds and exits cleanly:
+
+1. `CLAUDE_CONFIG_DIR` set to a throwaway directory with no skills, no MCP, no memory — isolates the call from the personal session entirely.
+2. A permission-bypass flag (e.g. `--dangerously-skip-permissions` or equivalent non-interactive mode) so Task Scheduler never stalls on a prompt.
+3. A hard timeout wrapper (`timeout /t 60`) to enforce a known ceiling and fall back gracefully if the model still overruns.
+
+This is a pure infrastructure change — the prompt files (`prompts/letter.md`, `prompts/why.md`, `prompts/scenario.md`) and the JSON-envelope contract are unchanged. If confirmed, AI narrative becomes the default path and the deterministic form becomes the pure fallback.
+
+**Out of scope for v1.** The v1 deterministic letter is stable and correct; the AI narrative is an enhancement, not a correctness fix.
+
+---
+
+*v1 shipped — 2026-06-13. Sprint 4 complete: full pipeline live (collect → letter → Drive → doGet → email), GAS+Scheduler automation running, deterministic fallback proven. AI narrative deferred to Phase 2 (config-isolation hypothesis above). Next sprint gate: Spike B verdict on Brier resolution → Sprint 5 (oracle-log + Brier).*

@@ -15,6 +15,18 @@ $ oracle "Who will win the 2026 World Cup?"
 
 Dear Oracle also watches the markets you care about. Every morning it compares today's odds against its own historical snapshots, and when a probability swings past your threshold, it sends you a letter from the oracle.
 
+## Status
+
+| Component | Status |
+|---|---|
+| Predictor (NL → ranked probabilities) | ✅ LIVE |
+| Full pipeline (collect → letter → Drive → doGet → email) | ✅ LIVE |
+| GAS + Task Scheduler automation | ✅ LIVE |
+| Deterministic daily letter (fallback path) | ✅ LIVE |
+| AI-authored narrative letter (`claude -p`) | Phase 2 |
+
+The deterministic letter (Where-things-stand snapshot + any transitions) is the production path for v1. The AI-narrative path via `claude -p` loads the full Claude Code session on the owner's PC — skills, MCP servers, memory, permission prompts — and blocks for the full 300 s timeout. Phase 2 hypothesis: run the call with a clean `CLAUDE_CONFIG_DIR` (no skills, no MCP) and a non-interactive permission-bypass flag so it completes in seconds.
+
 ## Quick start
 
 ```
