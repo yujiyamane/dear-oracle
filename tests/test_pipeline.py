@@ -245,12 +245,14 @@ def test_extract_with_session_brief(db, tmp_path):
         "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
     )
     letter_json = '{"html": "<p>Where things stand</p>", "plaintext": "line1\\nline2\\nline3"}'
-    stdout = (
+    model_text = (
         session_brief_noise
         + "---ORACLE-LETTER-START---\n"
         + letter_json + "\n"
         + "---ORACLE-LETTER-END---\n"
     )
+    # Wrap in CLI JSON envelope (--output-format json)
+    stdout = json.dumps({"type": "result", "subtype": "success", "result": model_text})
 
     preflight_ok = SimpleNamespace(returncode=0, stdout="ok",    stderr="")
     letter_resp  = SimpleNamespace(returncode=0, stdout=stdout,  stderr="")
@@ -276,7 +278,9 @@ def test_extract_brace_fallback(db, tmp_path):
     signals_path.write_text(json.dumps(signals), encoding="utf-8")
 
     letter_json = '{"html": "<p>Where things stand</p>", "plaintext": "line1\\nline2\\nline3"}'
-    stdout      = f"Some preamble text\n{letter_json}\nsome postamble"
+    model_text  = f"Some preamble text\n{letter_json}\nsome postamble"
+    # Wrap in CLI JSON envelope (--output-format json)
+    stdout      = json.dumps({"type": "result", "subtype": "success", "result": model_text})
 
     preflight_ok = SimpleNamespace(returncode=0, stdout="ok",   stderr="")
     letter_resp  = SimpleNamespace(returncode=0, stdout=stdout, stderr="")
@@ -309,4 +313,120 @@ def test_extract_unparseable(db, tmp_path):
         result = run_letter(signals_path, PROMPTS_DIR, tmp_path, db, "2026-06-13")
 
     assert result["fallback"] is True
+    assert "html" in result and "plaintext" in result
+
+
+# ---------------------------------------------------------------------------
+# test_letter_headless_flags
+# ---------------------------------------------------------------------------
+
+def test_letter_headless_flags(db, tmp_path):
+    """Letter argv must include --output-format json, --permission-mode dontAsk,
+    and a tool-disable flag. Zero real Claude calls."""
+    from core.pipeline import run_letter
+
+    signals      = load_fixture("signals_one_mover.json")
+    signals_path = tmp_path / "2026-06-13.signals.json"
+    signals_path.write_text(json.dumps(signals), encoding="utf-8")
+
+    letter_json = '{"html": "<p>test</p>", "plaintext": "line1\\nline2\\nline3"}'
+    inner       = f"---ORACLE-LETTER-START---\n{letter_json}\n---ORACLE-LETTER-END---\n"
+    cli_stdout  = json.dumps({"type": "result", "subtype": "success", "result": inner})
+
+    preflight_ok = SimpleNamespace(returncode=0, stdout="pong", stderr="")
+    letter_ok    = SimpleNamespace(returncode=0, stdout=cli_stdout, stderr="")
+
+    with patch("core.pipeline.subprocess.run", side_effect=[preflight_ok, letter_ok]) as mock_run:
+        run_letter(signals_path, PROMPTS_DIR, tmp_path, db, "2026-06-13")
+
+    letter_argv = mock_run.call_args_list[1].args[0]
+
+    assert "--output-format" in letter_argv, f"--output-format missing: {letter_argv}"
+    idx_of = letter_argv.index("--output-format")
+    assert letter_argv[idx_of + 1] == "json", f"--output-format value must be json: {letter_argv}"
+
+    assert "--permission-mode" in letter_argv, f"--permission-mode missing: {letter_argv}"
+    idx_pm = letter_argv.index("--permission-mode")
+    assert letter_argv[idx_pm + 1] == "dontAsk", f"--permission-mode value must be dontAsk: {letter_argv}"
+
+    has_tool_disable = "--tools" in letter_argv or "--disallowedTools" in letter_argv or "--disallowed-tools" in letter_argv
+    assert has_tool_disable, f"no tool-disable flag in letter argv: {letter_argv}"
+
+
+# ---------------------------------------------------------------------------
+# test_parse_cli_json_envelope
+# ---------------------------------------------------------------------------
+
+def test_parse_cli_json_envelope(db, tmp_path):
+    """Stdout is a CLI JSON envelope ({type, result}); run_letter unwraps .result
+    then runs _extract_envelope on it. Session Brief noise tolerated. fallback=False."""
+    from core.pipeline import run_letter
+
+    signals      = load_fixture("signals_one_mover.json")
+    signals_path = tmp_path / "2026-06-13.signals.json"
+    signals_path.write_text(json.dumps(signals), encoding="utf-8")
+
+    session_brief = (
+        "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        "  📋 Session Brief\n"
+        "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+    )
+    letter_json  = '{"html": "<p>Where things stand</p>", "plaintext": "line1\\nline2\\nline3"}'
+    inner        = session_brief + "---ORACLE-LETTER-START---\n" + letter_json + "\n---ORACLE-LETTER-END---\n"
+    cli_stdout   = json.dumps({"type": "result", "subtype": "success", "result": inner})
+
+    preflight_ok = SimpleNamespace(returncode=0, stdout="pong", stderr="")
+    letter_ok    = SimpleNamespace(returncode=0, stdout=cli_stdout, stderr="")
+
+    with patch("core.pipeline.subprocess.run", side_effect=[preflight_ok, letter_ok]):
+        result = run_letter(signals_path, PROMPTS_DIR, tmp_path, db, "2026-06-13")
+
+    assert result["fallback"] is False, f"should not fallback on valid CLI JSON envelope: {result}"
+    assert result["html"] == "<p>Where things stand</p>"
+    assert "line1" in result["plaintext"] and "line2" in result["plaintext"]
+
+
+# ---------------------------------------------------------------------------
+# test_cli_json_missing_result
+# ---------------------------------------------------------------------------
+
+def test_cli_json_missing_result(db, tmp_path):
+    """Stdout is valid JSON but lacks the 'result' key -> deterministic fallback."""
+    from core.pipeline import run_letter
+
+    signals      = load_fixture("signals_one_mover.json")
+    signals_path = tmp_path / "2026-06-13.signals.json"
+    signals_path.write_text(json.dumps(signals), encoding="utf-8")
+
+    cli_stdout   = json.dumps({"type": "result"})  # no 'result' key
+
+    preflight_ok = SimpleNamespace(returncode=0, stdout="pong", stderr="")
+    letter_bad   = SimpleNamespace(returncode=0, stdout=cli_stdout, stderr="")
+
+    with patch("core.pipeline.subprocess.run", side_effect=[preflight_ok, letter_bad]):
+        result = run_letter(signals_path, PROMPTS_DIR, tmp_path, db, "2026-06-13")
+
+    assert result["fallback"] is True, "missing 'result' key must trigger deterministic fallback"
+    assert "html" in result and "plaintext" in result
+
+
+# ---------------------------------------------------------------------------
+# test_cli_non_json_stdout
+# ---------------------------------------------------------------------------
+
+def test_cli_non_json_stdout(db, tmp_path):
+    """Stdout is not valid JSON at all -> deterministic fallback."""
+    from core.pipeline import run_letter
+
+    signals      = load_fixture("signals_one_mover.json")
+    signals_path = tmp_path / "2026-06-13.signals.json"
+    signals_path.write_text(json.dumps(signals), encoding="utf-8")
+
+    preflight_ok = SimpleNamespace(returncode=0, stdout="pong", stderr="")
+    letter_bad   = SimpleNamespace(returncode=0, stdout="not json at all", stderr="")
+
+    with patch("core.pipeline.subprocess.run", side_effect=[preflight_ok, letter_bad]):
+        result = run_letter(signals_path, PROMPTS_DIR, tmp_path, db, "2026-06-13")
+
+    assert result["fallback"] is True, "non-JSON stdout must trigger deterministic fallback"
     assert "html" in result and "plaintext" in result

@@ -26,6 +26,20 @@ from pathlib import Path
 MARKER_START = "---ORACLE-LETTER-START---"
 MARKER_END   = "---ORACLE-LETTER-END---"
 
+# Headless invocation flags — prevents any tool-permission prompt that would
+# block the subprocess (subscription OAuth/keychain auth stays intact; do NOT
+# use --bare which strictly requires ANTHROPIC_API_KEY and ignores keychain).
+# Config-dir isolation (CLAUDE_CONFIG_DIR) would also break keychain auth, so
+# we rely on flags only.  --tools "" disables all built-in tools (no prompts
+# needed).  --permission-mode dontAsk is belt-and-suspenders.
+# NOTE: --max-turns is NOT present in this CLI version (confirmed via --help).
+_HEADLESS_FLAGS: list[str] = [
+    "--output-format", "json",
+    "--permission-mode", "dontAsk",
+    "--tools", "",               # "" disables ALL built-in tools → no permission prompt
+    "--disable-slash-commands",  # disable all skills / slash commands
+]
+
 
 # ---------------------------------------------------------------------------
 # Internal helpers
@@ -100,18 +114,18 @@ def _write_letter(envelope: dict, exports_dir, today: str) -> None:
 # ---------------------------------------------------------------------------
 
 def preflight(claude_cmd: str = "claude") -> bool:
-    """Run `claude -p "ping"` with 90 s timeout.
+    """Run `claude -p "ping"` with headless flags; 30 s timeout.
 
     Returns True if exit code is 0, False on any failure or timeout.
     """
     try:
         result = subprocess.run(
-            _build_argv(claude_cmd, "-p", "ping"),
+            _build_argv(claude_cmd, "-p", "ping", *_HEADLESS_FLAGS),
             capture_output=True,
             text=True,
             encoding="utf-8",
             errors="replace",
-            timeout=90,
+            timeout=30,
         )
         return result.returncode == 0
     except Exception:
@@ -219,27 +233,36 @@ def run_letter(
     combined    = letter_text + "\n\n=== SIGNALS JSON ===\n" + signals_text
 
     try:
-        # TODO: add --allowed-tools web_search once the correct flag name is confirmed
-        # for the installed claude CLI version.
         proc = subprocess.run(
-            _build_argv(claude_cmd, "-p"),
+            _build_argv(claude_cmd, "-p", *_HEADLESS_FLAGS),
             input=combined,
             capture_output=True,
             text=True,
             encoding="utf-8",
             errors="replace",
-            timeout=300,
+            timeout=120,
         )
         if proc.returncode != 0:
             raise RuntimeError(
                 f"claude exited {proc.returncode}: {proc.stderr[:200]}"
             )
 
-        envelope = _extract_envelope(proc.stdout)
+        # --output-format json wraps model output: {"type":"result","result":"<text>"}
+        # Extract the model text first, then apply marker/brace extraction on it.
+        try:
+            cli_response = json.loads(proc.stdout)
+            model_text   = cli_response["result"]
+        except (json.JSONDecodeError, KeyError) as exc:
+            raise ValueError(
+                f"cli json parse failed "
+                f"(len={len(proc.stdout)}): {proc.stdout[:300]!r}"
+            ) from exc
+
+        envelope = _extract_envelope(model_text)
         if envelope is None:
             raise ValueError(
-                f"no parseable JSON in stdout "
-                f"(len={len(proc.stdout)}): {proc.stdout[:300]!r}"
+                f"no parseable JSON in model output "
+                f"(len={len(model_text)}): {model_text[:300]!r}"
             )
 
         output = {"html": envelope["html"], "plaintext": envelope["plaintext"], "fallback": False}
