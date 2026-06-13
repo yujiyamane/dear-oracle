@@ -197,3 +197,33 @@ def test_deck_rotproof(worldcup_adapter):
 
     # The entry label is preserved
     assert entry["label"] == "Who will win the FIFA World Cup?"
+
+
+# ---------------------------------------------------------------------------
+# test_also_pricing_relevance
+# ---------------------------------------------------------------------------
+
+def test_also_pricing_relevance(noisy_adapter):
+    """Unrelated high-volume events must NOT appear in also_pricing.
+
+    Fixture: WC (vol 10M, main), NBA Champion (vol 9M), US Presidential (vol 7M).
+    Simplified query tokens: {'world', 'cup'}.
+    Neither 'NBA Champion' nor 'Presidential Election Winner' shares a token
+    with {'world', 'cup'} → also_pricing must be empty after the relevance gate.
+    """
+    from core.predictor import predict, PredictorAnswer
+
+    result = predict(
+        "Who will win the 2026 World Cup?",
+        adapter=noisy_adapter,
+        interests_path=None,
+    )
+
+    assert isinstance(result, PredictorAnswer)
+    assert result.main_event.event_id == "wc-2026", (
+        f"World Cup (highest-volume) must be main event; got {result.main_event.event_id}"
+    )
+    assert result.also_pricing == [], (
+        "unrelated events (NBA, Election) share no token with 'world cup' "
+        f"and must be filtered; got: {[e.event_title for e in result.also_pricing]}"
+    )

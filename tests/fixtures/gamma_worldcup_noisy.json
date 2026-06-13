@@ -1,0 +1,90 @@
+{
+  "events": [
+    {
+      "event_id": "wc-2026",
+      "event_title": "2026 FIFA World Cup Winner",
+      "volume_usd": 10000000,
+      "end_date": "2026-07-20",
+      "tags": [
+        { "slug": "world-cup", "tag_id": "204" }
+      ],
+      "markets": [
+        {
+          "market_id": "m-spain",
+          "outcome_label": "Spain",
+          "url": "https://polymarket.com/event/world-cup-2026/spain",
+          "prob_now": 0.30,
+          "delta_24h_pp": null,
+          "delta_7d_pp": 4.0
+        },
+        {
+          "market_id": "m-england",
+          "outcome_label": "England",
+          "url": "https://polymarket.com/event/world-cup-2026/england",
+          "prob_now": 0.20,
+          "delta_24h_pp": null,
+          "delta_7d_pp": null
+        }
+      ]
+    },
+    {
+      "event_id": "nba-2026",
+      "event_title": "2026 NBA Champion",
+      "volume_usd": 9000000,
+      "end_date": "2026-06-25",
+      "tags": [
+        { "slug": "nba", "tag_id": "555" }
+      ],
+      "markets": [
+        {
+          "market_id": "m-celtics",
+          "outcome_label": "Celtics",
+          "url": "https://polymarket.com/event/nba-champion-2026/celtics",
+          "prob_now": 0.22,
+          "delta_24h_pp": null,
+          "delta_7d_pp": null
+        },
+        {
+          "market_id": "m-lakers",
+          "outcome_label": "Lakers",
+          "url": "https://polymarket.com/event/nba-champion-2026/lakers",
+          "prob_now": 0.18,
+          "delta_24h_pp": null,
+          "delta_7d_pp": null
+        }
+      ]
+    },
+    {
+      "event_id": "us-election-2028",
+      "event_title": "2028 US Presidential Election Winner",
+      "volume_usd": 7000000,
+      "end_date": "2028-11-10",
+      "tags": [
+        { "slug": "us-election", "tag_id": "99" }
+      ],
+      "markets": [
+        {
+          "market_id": "m-dem",
+          "outcome_label": "Democrat",
+          "url": "https://polymarket.com/event/us-president-2028/dem",
+          "prob_now": 0.52,
+          "delta_24h_pp": null,
+          "delta_7d_pp": null
+        },
+        {
+          "market_id": "m-rep",
+          "outcome_label": "Republican",
+          "url": "https://polymarket.com/event/us-president-2028/rep",
+          "prob_now": 0.44,
+          "delta_24h_pp": null,
+          "delta_7d_pp": null
+        }
+      ]
+    }
+  ],
+  "tags": [
+    { "slug": "world-cup", "tag_id": "204" },
+    { "slug": "nba", "tag_id": "555" },
+    { "slug": "us-election", "tag_id": "99" }
+  ]
+}

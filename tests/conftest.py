@@ -99,6 +99,11 @@ def zero_adapter() -> MockAdapter:
     return MockAdapter("gamma_zero.json")
 
 
+@pytest.fixture
+def noisy_adapter() -> MockAdapter:
+    return MockAdapter("gamma_worldcup_noisy.json")
+
+
 # ---------------------------------------------------------------------------
 # SQLite in-memory db (Sprint 3+)
 # ---------------------------------------------------------------------------

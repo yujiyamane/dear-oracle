@@ -16,6 +16,7 @@ Public API:
 from __future__ import annotations
 
 import json
+import re
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -87,10 +88,20 @@ def predict(
     events = sorted(events, key=lambda e: e.volume_usd or 0.0, reverse=True)
 
     main_event = events[0]
+
+    # Relevance gate: keep only also_pricing events whose title shares at least
+    # one significant token (no stop words, no 4-digit years) with the simplified
+    # query.  The main event is never gated — it already won by volume rank.
+    query_tokens = _relevance_tokens(_simplify_query(query))
+    also_pricing = [
+        e for e in events[1:]
+        if _relevance_tokens(e.event_title) & query_tokens
+    ]
+
     return PredictorAnswer(
         main_event=main_event,
         outcomes=aggregate(main_event),
-        also_pricing=events[1:],
+        also_pricing=also_pricing,
     )
 
 
@@ -134,6 +145,22 @@ _STOP_WORDS = frozenset(
     "at by with from on about next win wins won does do can i me my we our "
     "you your it its this that these those am has have had and or but not".split()
 )
+
+
+_YEAR_RE = re.compile(r'^\d{4}$')
+
+
+def _relevance_tokens(text: str) -> frozenset[str]:
+    """Significant tokens for title-overlap matching.
+
+    Excludes stop words and bare 4-digit years so that shared year tokens
+    (e.g. both events have "2026") don't create false positives.
+    """
+    return frozenset(
+        t.lower()
+        for t in text.split()
+        if t.lower() not in _STOP_WORDS and not _YEAR_RE.match(t)
+    )
 
 
 def _simplify_query(question: str) -> str:
