@@ -15,17 +15,20 @@ from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
 # ── Logging ──────────────────────────────────────────────────────────────────
 
 _log_dir = PROJECT_ROOT / "data" / "logs"
 _log_dir.mkdir(parents=True, exist_ok=True)
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s %(levelname)s %(message)s",
-    handlers=[logging.FileHandler(_log_dir / "dear-oracle.log", encoding="utf-8")],
-)
 log = logging.getLogger("dear-oracle")
+log.setLevel(logging.INFO)
+if not log.handlers:
+    _h = logging.FileHandler(_log_dir / "dear-oracle.log", encoding="utf-8")
+    _h.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(message)s"))
+    log.addHandler(_h)
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
