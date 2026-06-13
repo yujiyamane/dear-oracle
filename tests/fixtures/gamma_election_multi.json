@@ -1,0 +1,90 @@
+{
+  "events": [
+    {
+      "event_id": "us-election-2028",
+      "event_title": "2028 US Presidential Election Winner",
+      "volume_usd": 8000000,
+      "end_date": "2028-11-10",
+      "tags": [
+        { "slug": "us-election", "tag_id": "99" }
+      ],
+      "markets": [
+        {
+          "market_id": "m-dem",
+          "outcome_label": "Democrat",
+          "url": "https://polymarket.com/event/us-president-2028/dem",
+          "prob_now": 0.52,
+          "delta_24h_pp": null,
+          "delta_7d_pp": null
+        },
+        {
+          "market_id": "m-rep",
+          "outcome_label": "Republican",
+          "url": "https://polymarket.com/event/us-president-2028/rep",
+          "prob_now": 0.44,
+          "delta_24h_pp": null,
+          "delta_7d_pp": null
+        }
+      ]
+    },
+    {
+      "event_id": "uk-election-2028",
+      "event_title": "2028 UK General Election Winner",
+      "volume_usd": 3000000,
+      "end_date": "2028-05-15",
+      "tags": [
+        { "slug": "uk-election", "tag_id": "77" }
+      ],
+      "markets": [
+        {
+          "market_id": "m-labour",
+          "outcome_label": "Labour",
+          "url": "https://polymarket.com/event/uk-election-2028/labour",
+          "prob_now": 0.55,
+          "delta_24h_pp": null,
+          "delta_7d_pp": null
+        },
+        {
+          "market_id": "m-tory",
+          "outcome_label": "Conservative",
+          "url": "https://polymarket.com/event/uk-election-2028/tory",
+          "prob_now": 0.38,
+          "delta_24h_pp": null,
+          "delta_7d_pp": null
+        }
+      ]
+    },
+    {
+      "event_id": "au-election-2028",
+      "event_title": "2028 Australian Federal Election Winner",
+      "volume_usd": 2000000,
+      "end_date": "2028-05-20",
+      "tags": [
+        { "slug": "australian-politics", "tag_id": "503" }
+      ],
+      "markets": [
+        {
+          "market_id": "m-alp",
+          "outcome_label": "Labor",
+          "url": "https://polymarket.com/event/au-election-2028/alp",
+          "prob_now": 0.58,
+          "delta_24h_pp": null,
+          "delta_7d_pp": null
+        },
+        {
+          "market_id": "m-lnp",
+          "outcome_label": "Coalition",
+          "url": "https://polymarket.com/event/au-election-2028/lnp",
+          "prob_now": 0.38,
+          "delta_24h_pp": null,
+          "delta_7d_pp": null
+        }
+      ]
+    }
+  ],
+  "tags": [
+    { "slug": "us-election", "tag_id": "99" },
+    { "slug": "uk-election", "tag_id": "77" },
+    { "slug": "australian-politics", "tag_id": "503" }
+  ]
+}

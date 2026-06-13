@@ -1,0 +1,50 @@
+{
+  "events": [
+    {
+      "event_id": "wc-2026",
+      "event_title": "2026 FIFA World Cup Winner",
+      "volume_usd": 5000000,
+      "end_date": "2026-07-20",
+      "tags": [
+        { "slug": "world-cup", "tag_id": "204" }
+      ],
+      "markets": [
+        {
+          "market_id": "m-spain",
+          "outcome_label": "Spain",
+          "url": "https://polymarket.com/event/world-cup-2026/spain",
+          "prob_now": 0.30,
+          "delta_24h_pp": null,
+          "delta_7d_pp": 4.0
+        },
+        {
+          "market_id": "m-england",
+          "outcome_label": "England",
+          "url": "https://polymarket.com/event/world-cup-2026/england",
+          "prob_now": 0.20,
+          "delta_24h_pp": null,
+          "delta_7d_pp": null
+        },
+        {
+          "market_id": "m-argentina",
+          "outcome_label": "Argentina",
+          "url": "https://polymarket.com/event/world-cup-2026/argentina",
+          "prob_now": 0.10,
+          "delta_24h_pp": null,
+          "delta_7d_pp": -2.0
+        },
+        {
+          "market_id": "m-france",
+          "outcome_label": "France",
+          "url": "https://polymarket.com/event/world-cup-2026/france",
+          "prob_now": 0.05,
+          "delta_24h_pp": null,
+          "delta_7d_pp": null
+        }
+      ]
+    }
+  ],
+  "tags": [
+    { "slug": "world-cup", "tag_id": "204" }
+  ]
+}
