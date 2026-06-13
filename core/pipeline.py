@@ -41,9 +41,11 @@ BLOCKED_SOURCE_NAMES: list[str] = [
 # Config-dir isolation (CLAUDE_CONFIG_DIR) would also break keychain auth, so
 # we rely on flags only.  --tools "" disables all built-in tools (no prompts
 # needed).  --permission-mode dontAsk is belt-and-suspenders.
-# NOTE: --max-turns is NOT present in this CLI version (confirmed via --help).
+# --max-turns 1 caps the model to exactly one generation turn, preventing
+# multi-turn loops that stall until the 120 s subprocess timeout.
 _HEADLESS_FLAGS: list[str] = [
     "--output-format", "json",
+    "--max-turns", "1",
     "--permission-mode", "dontAsk",
     "--tools", "",               # "" disables ALL built-in tools → no permission prompt
     "--disable-slash-commands",  # disable all skills / slash commands

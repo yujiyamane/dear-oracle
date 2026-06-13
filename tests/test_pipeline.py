@@ -321,8 +321,8 @@ def test_extract_unparseable(db, tmp_path):
 # ---------------------------------------------------------------------------
 
 def test_letter_headless_flags(db, tmp_path):
-    """Letter argv must include --output-format json, --permission-mode dontAsk,
-    and a tool-disable flag. Zero real Claude calls."""
+    """Letter argv must include --output-format json, --max-turns 1,
+    --permission-mode dontAsk, and a tool-disable flag. Zero real Claude calls."""
     from core.pipeline import run_letter
 
     signals      = load_fixture("signals_one_mover.json")
@@ -344,6 +344,10 @@ def test_letter_headless_flags(db, tmp_path):
     assert "--output-format" in letter_argv, f"--output-format missing: {letter_argv}"
     idx_of = letter_argv.index("--output-format")
     assert letter_argv[idx_of + 1] == "json", f"--output-format value must be json: {letter_argv}"
+
+    assert "--max-turns" in letter_argv, f"--max-turns missing: {letter_argv}"
+    idx_mt = letter_argv.index("--max-turns")
+    assert letter_argv[idx_mt + 1] == "1", f"--max-turns value must be 1: {letter_argv}"
 
     assert "--permission-mode" in letter_argv, f"--permission-mode missing: {letter_argv}"
     idx_pm = letter_argv.index("--permission-mode")
