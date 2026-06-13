@@ -18,6 +18,8 @@ deterministic_fallback(signals, db, today) -> dict
 from __future__ import annotations
 
 import json
+import os
+import shutil
 import subprocess
 from datetime import datetime
 from pathlib import Path
@@ -26,6 +28,19 @@ from pathlib import Path
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
+
+def _build_argv(claude_cmd: str, *args: str) -> list[str]:
+    """Build subprocess argv cross-platform.
+
+    On Windows, .cmd/.bat npm shims can't be spawned without shell involvement;
+    prefix with ["cmd", "/c"] so the shim resolves via cmd.exe PATH lookup.
+    On POSIX, call the resolved binary directly.
+    """
+    resolved = shutil.which(claude_cmd) or claude_cmd
+    if os.name == "nt":
+        return ["cmd", "/c", resolved, *args]
+    return [resolved, *args]
+
 
 def _log(db, phase: str, status: str, detail: str | None = None) -> None:
     if db is None:
@@ -57,7 +72,7 @@ def preflight(claude_cmd: str = "claude") -> bool:
     """
     try:
         result = subprocess.run(
-            [claude_cmd, "-p", "ping"],
+            _build_argv(claude_cmd, "-p", "ping"),
             capture_output=True,
             text=True,
             timeout=30,
@@ -145,7 +160,7 @@ def run_letter(
     """Run the full Layer 2 pipeline step for one day.
 
     1. Preflight (`claude -p "ping"`): on failure -> fallback + log auth error.
-    2. Run `claude -p letter.md --allowedTools web_search` with signals on stdin.
+    2. Run `claude -p letter.md` with signals on stdin.
     3. json.loads(stdout): on JSONDecodeError or non-zero exit -> fallback.
     4. Write html/txt to exports_dir/letters/<today>.{html,txt}.
     5. Log result to run_log.
@@ -166,8 +181,11 @@ def run_letter(
     # --- Letter generation ---
     letter_md = Path(prompts_dir) / "letter.md"
     try:
+        # TODO: add --allowed-tools web_search once the correct flag name is confirmed
+        # for the installed claude CLI version (--allowedTools raises FileNotFoundError
+        # on Windows before we even get to flag validation).
         proc = subprocess.run(
-            [claude_cmd, "-p", str(letter_md), "--allowedTools", "web_search"],
+            _build_argv(claude_cmd, "-p", str(letter_md)),
             input=signals_text,
             capture_output=True,
             text=True,

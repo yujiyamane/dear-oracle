@@ -121,3 +121,40 @@ def test_digest_extraction(db, tmp_path):
     assert len(digest_lines) == 3
     for line in digest_lines:
         assert line.strip(), f"digest line must not be empty, got: {line!r}"
+
+
+# ---------------------------------------------------------------------------
+# test_windows_posix_argv
+# ---------------------------------------------------------------------------
+
+def test_windows_posix_argv(monkeypatch):
+    """Windows routes through cmd /c; POSIX calls the binary directly. Zero real Claude calls."""
+    import core.pipeline as pipeline_mod
+
+    # --- Windows ---
+    monkeypatch.setattr(pipeline_mod.os, "name", "nt")
+    monkeypatch.setattr(pipeline_mod.shutil, "which", lambda _cmd: r"C:\npm\claude.cmd")
+
+    with patch("core.pipeline.subprocess.run") as mock_run:
+        mock_run.return_value = SimpleNamespace(returncode=0, stdout="ok", stderr="")
+        pipeline_mod.preflight("claude")
+
+    argv_nt = mock_run.call_args[0][0]
+    assert argv_nt[0] == "cmd" and argv_nt[1] == "/c", (
+        f"Windows must prefix with ['cmd', '/c'], got: {argv_nt}"
+    )
+    assert r"claude.cmd" in argv_nt[2]
+
+    # --- POSIX ---
+    monkeypatch.setattr(pipeline_mod.os, "name", "posix")
+    monkeypatch.setattr(pipeline_mod.shutil, "which", lambda _cmd: "/usr/bin/claude")
+
+    with patch("core.pipeline.subprocess.run") as mock_run:
+        mock_run.return_value = SimpleNamespace(returncode=0, stdout="ok", stderr="")
+        pipeline_mod.preflight("claude")
+
+    argv_posix = mock_run.call_args[0][0]
+    assert argv_posix[0] == "/usr/bin/claude", (
+        f"POSIX must call binary directly, got: {argv_posix}"
+    )
+    assert argv_posix[:2] != ["cmd", "/c"]
