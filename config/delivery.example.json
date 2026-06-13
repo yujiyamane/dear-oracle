@@ -2,7 +2,7 @@
   "schema_version": 1,
   "adapter": "gas",
   "gas": {
-    "webapp_url": "https://script.google.com/macros/s/AKfycbyR_9A8ZBfJYR5bV6zBOlwIZcoaMFBYU3FB-f-Mj0FJi2_sP4ERpUQAmKBIE027wZBS2w/exec",
+    "webapp_url": "https://script.google.com/macros/s/YOUR_DEPLOYMENT_ID/exec",
     "to": "your@email.com",
     "subject_prefix": "Dear Oracle"
   },

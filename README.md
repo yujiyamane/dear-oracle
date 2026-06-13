@@ -5,7 +5,7 @@
 Ask it a question in plain language — *"Who will win the next World Cup?"* — and it answers with probability-ranked outcomes sourced live from real-money prediction markets. No API key, no wallet, no subscription.
 
 ```
-$ oracle "Who will win the 2026 World Cup?"
+$ python oracle.py "Who will win the 2026 World Cup?"
 -> Spain     30%   +4pp 7d
 -> England   20%   --
 -> Argentina 10%   -2pp 7d
@@ -32,9 +32,10 @@ The deterministic letter (Where-things-stand snapshot + any transitions) is the 
 ```
 git clone https://github.com/yujiyamane/dear-oracle
 cd dear-oracle
-pip install -r requirements.txt
-oracle "Who will win the 2026 World Cup?"
+python oracle.py "Who will win the 2026 World Cup?"
 ```
+
+No runtime install needed — Python 3.10+ standard library only. To run the tests: `pip install pytest && python -m pytest`.
 
 ## Documentation
 

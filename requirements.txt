@@ -1,0 +1,5 @@
+# Runtime: Python 3.10+ standard library only (urllib, sqlite3, json, pathlib).
+# No third-party packages are required to run Dear Oracle.
+
+# Dev / test only
+pytest
