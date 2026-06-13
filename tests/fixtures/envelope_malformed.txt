@@ -1,3 +1,2 @@
-```json
-{"html": "<h1>test</h1>", "plaintext": "line1\nline2\nline3"}
-```
+I encountered an error generating the oracle letter.
+{"html": <ERROR: template failed>, plaintext: missing_quotes_and_broken}

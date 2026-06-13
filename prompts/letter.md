@@ -36,11 +36,15 @@ If there are zero moved signals, still render **Where things stand** (the snapsh
 
 ## Output format (STRICT)
 
-Emit a SINGLE JSON object and nothing else. No prose before or after. No markdown code fences.
+Emit the JSON object wrapped between these EXACT marker lines (no other text outside the markers):
 
 ```
+---ORACLE-LETTER-START---
 {"html": "<full letter as HTML, standard palette, inline-safe>", "plaintext": "<the same letter as plaintext; the FIRST 3 LINES are the email digest>"}
+---ORACLE-LETTER-END---
 ```
+
+Raw JSON only between the markers — no markdown code fences, no prose.
 
 - `html`: use the shared palette defined in docs/brand.md (the single source of truth — Charcoal Blue #264653 header, Verdigris #2A9D8F bars) and the semantic colours (up #2D8659, down #C0392B, neutral #8FA3AC) for Δ chips. Inline CSS only. The "Where things stand" snapshot is a compact table; movers are the detailed sections above it.
 - `plaintext`: first line = subject-style summary of the single most important move (or, on a calm day, the most notable current standing); lines 2–3 = the next most useful two lines. These three lines ARE the digest.

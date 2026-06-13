@@ -4,10 +4,9 @@ Public API
 ----------
 preflight(claude_cmd="claude") -> bool
     Smoke-test the claude CLI. Returns True iff exit code is 0.
-    Logs ('auth', ok|error) to run_log via the caller (run_letter).
 
 run_letter(signals_path, prompts_dir, exports_dir, db, today, claude_cmd="claude") -> dict
-    Preflight -> claude -p -> json.loads split -> write html/txt.
+    Preflight -> claude -p (prompt+signals via stdin) -> extract JSON -> write html/txt.
     On any failure -> deterministic_fallback; logs ('letter', 'fallback').
     Returns {"html":..., "plaintext":..., "fallback": bool}.
 
@@ -23,6 +22,9 @@ import shutil
 import subprocess
 from datetime import datetime
 from pathlib import Path
+
+MARKER_START = "---ORACLE-LETTER-START---"
+MARKER_END   = "---ORACLE-LETTER-END---"
 
 
 # ---------------------------------------------------------------------------
@@ -40,6 +42,38 @@ def _build_argv(claude_cmd: str, *args: str) -> list[str]:
     if os.name == "nt":
         return ["cmd", "/c", resolved, *args]
     return [resolved, *args]
+
+
+def _extract_envelope(stdout: str) -> dict | None:
+    """Extract JSON envelope from stdout, tolerating Session Brief preamble.
+
+    Strategy 1 — marker-based: substring between MARKER_START / MARKER_END lines.
+    Strategy 2 — brace-based:  stdout[first '{' : last '}' + 1].
+    Both must parse as JSON with 'html' and 'plaintext' keys; else return None.
+    """
+    # Strategy 1: explicit markers
+    if MARKER_START in stdout and MARKER_END in stdout:
+        start     = stdout.index(MARKER_START) + len(MARKER_START)
+        end       = stdout.index(MARKER_END, start)
+        candidate = stdout[start:end].strip()
+        try:
+            data = json.loads(candidate)
+            if "html" in data and "plaintext" in data:
+                return data
+        except json.JSONDecodeError:
+            pass
+
+    # Strategy 2: first '{' to last '}'
+    if "{" in stdout and "}" in stdout:
+        candidate = stdout[stdout.index("{") : stdout.rindex("}") + 1]
+        try:
+            data = json.loads(candidate)
+            if "html" in data and "plaintext" in data:
+                return data
+        except json.JSONDecodeError:
+            pass
+
+    return None
 
 
 def _log(db, phase: str, status: str, detail: str | None = None) -> None:
@@ -66,7 +100,7 @@ def _write_letter(envelope: dict, exports_dir, today: str) -> None:
 # ---------------------------------------------------------------------------
 
 def preflight(claude_cmd: str = "claude") -> bool:
-    """Run `claude -p "ping"` with 30 s timeout.
+    """Run `claude -p "ping"` with 90 s timeout.
 
     Returns True if exit code is 0, False on any failure or timeout.
     """
@@ -75,7 +109,9 @@ def preflight(claude_cmd: str = "claude") -> bool:
             _build_argv(claude_cmd, "-p", "ping"),
             capture_output=True,
             text=True,
-            timeout=30,
+            encoding="utf-8",
+            errors="replace",
+            timeout=90,
         )
         return result.returncode == 0
     except Exception:
@@ -160,8 +196,8 @@ def run_letter(
     """Run the full Layer 2 pipeline step for one day.
 
     1. Preflight (`claude -p "ping"`): on failure -> fallback + log auth error.
-    2. Run `claude -p letter.md` with signals on stdin.
-    3. json.loads(stdout): on JSONDecodeError or non-zero exit -> fallback.
+    2. Read prompts/letter.md + signals JSON; pass combined as stdin to `claude -p`.
+    3. Extract JSON from stdout via marker then brace strategy.
     4. Write html/txt to exports_dir/letters/<today>.{html,txt}.
     5. Log result to run_log.
     """
@@ -179,16 +215,19 @@ def run_letter(
     _log(db, "auth", "ok")
 
     # --- Letter generation ---
-    letter_md = Path(prompts_dir) / "letter.md"
+    letter_text = (Path(prompts_dir) / "letter.md").read_text(encoding="utf-8")
+    combined    = letter_text + "\n\n=== SIGNALS JSON ===\n" + signals_text
+
     try:
         # TODO: add --allowed-tools web_search once the correct flag name is confirmed
-        # for the installed claude CLI version (--allowedTools raises FileNotFoundError
-        # on Windows before we even get to flag validation).
+        # for the installed claude CLI version.
         proc = subprocess.run(
-            _build_argv(claude_cmd, "-p", str(letter_md)),
-            input=signals_text,
+            _build_argv(claude_cmd, "-p"),
+            input=combined,
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             timeout=300,
         )
         if proc.returncode != 0:
@@ -196,16 +235,19 @@ def run_letter(
                 f"claude exited {proc.returncode}: {proc.stderr[:200]}"
             )
 
-        envelope  = json.loads(proc.stdout)
-        html      = envelope["html"]
-        plaintext = envelope["plaintext"]
+        envelope = _extract_envelope(proc.stdout)
+        if envelope is None:
+            raise ValueError(
+                f"no parseable JSON in stdout "
+                f"(len={len(proc.stdout)}): {proc.stdout[:300]!r}"
+            )
 
-        output = {"html": html, "plaintext": plaintext, "fallback": False}
+        output = {"html": envelope["html"], "plaintext": envelope["plaintext"], "fallback": False}
         _write_letter(output, exports_dir, today)
         _log(db, "letter", "ok")
         return output
 
-    except (json.JSONDecodeError, RuntimeError, subprocess.TimeoutExpired, KeyError) as exc:
+    except (json.JSONDecodeError, RuntimeError, subprocess.TimeoutExpired, KeyError, ValueError) as exc:
         detail = str(exc)[:500]
         _log(db, "letter", "fallback", detail)
         result = deterministic_fallback(signals, db, today)

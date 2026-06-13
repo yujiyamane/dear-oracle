@@ -158,3 +158,155 @@ def test_windows_posix_argv(monkeypatch):
         f"POSIX must call binary directly, got: {argv_posix}"
     )
     assert argv_posix[:2] != ["cmd", "/c"]
+
+
+# ---------------------------------------------------------------------------
+# test_subprocess_utf8_encoding
+# ---------------------------------------------------------------------------
+
+def test_subprocess_utf8_encoding(db, tmp_path):
+    """Both subprocess.run calls (preflight + letter) must specify encoding='utf-8'."""
+    from core.pipeline import run_letter
+
+    signals      = load_fixture("signals_one_mover.json")
+    signals_path = tmp_path / "2026-06-13.signals.json"
+    signals_path.write_text(json.dumps(signals), encoding="utf-8")
+
+    letter_json = '{"html": "<p>test</p>", "plaintext": "line1\\nline2\\nline3"}'
+    stdout_ok   = f"---ORACLE-LETTER-START---\n{letter_json}\n---ORACLE-LETTER-END---\n"
+
+    preflight_ok = SimpleNamespace(returncode=0, stdout="ok",      stderr="")
+    letter_ok    = SimpleNamespace(returncode=0, stdout=stdout_ok, stderr="")
+
+    with patch("core.pipeline.subprocess.run", side_effect=[preflight_ok, letter_ok]) as mock_run:
+        run_letter(signals_path, PROMPTS_DIR, tmp_path, db, "2026-06-13")
+
+    assert mock_run.call_count == 2, "expected exactly 2 subprocess.run calls"
+    for i, call_obj in enumerate(mock_run.call_args_list):
+        assert call_obj.kwargs.get("encoding") == "utf-8", (
+            f"subprocess.run call {i} missing encoding='utf-8'; kwargs={call_obj.kwargs}"
+        )
+
+
+# ---------------------------------------------------------------------------
+# test_letter_prompt_via_stdin
+# ---------------------------------------------------------------------------
+
+def test_letter_prompt_via_stdin(db, tmp_path):
+    """run_letter passes prompt+signals as combined stdin; no .md path in argv."""
+    from core.pipeline import run_letter
+
+    signals      = load_fixture("signals_one_mover.json")
+    signals_text = json.dumps(signals)
+    signals_path = tmp_path / "2026-06-13.signals.json"
+    signals_path.write_text(signals_text, encoding="utf-8")
+
+    letter_text       = (PROMPTS_DIR / "letter.md").read_text(encoding="utf-8")
+    expected_combined = letter_text + "\n\n=== SIGNALS JSON ===\n" + signals_text
+
+    letter_json = '{"html": "<p>test</p>", "plaintext": "line1\\nline2\\nline3"}'
+    stdout_ok   = f"---ORACLE-LETTER-START---\n{letter_json}\n---ORACLE-LETTER-END---\n"
+
+    preflight_ok = SimpleNamespace(returncode=0, stdout="ok",      stderr="")
+    letter_ok    = SimpleNamespace(returncode=0, stdout=stdout_ok, stderr="")
+
+    with patch("core.pipeline.subprocess.run", side_effect=[preflight_ok, letter_ok]) as mock_run:
+        run_letter(signals_path, PROMPTS_DIR, tmp_path, db, "2026-06-13")
+
+    letter_call = mock_run.call_args_list[1]
+    assert letter_call.kwargs.get("input") == expected_combined, (
+        "input must be letter_text + separator + signals_text"
+    )
+    argv = letter_call.args[0]
+    assert "-p" in argv, "argv must contain -p"
+    assert not any(arg.endswith(".md") for arg in argv), (
+        f"no .md file path expected in argv, got: {argv}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# test_extract_with_session_brief
+# ---------------------------------------------------------------------------
+
+def test_extract_with_session_brief(db, tmp_path):
+    """Markers in preamble-noisy stdout (box chars + emoji) -> parses, fallback=False."""
+    from core.pipeline import run_letter
+
+    signals      = load_fixture("signals_one_mover.json")
+    signals_path = tmp_path / "2026-06-13.signals.json"
+    signals_path.write_text(json.dumps(signals), encoding="utf-8")
+
+    session_brief_noise = (
+        "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        "  📋 Session Brief\n"
+        "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        "  ✅ Recent:\n"
+        "  - [chore] Engine stabilisation\n"
+        "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+    )
+    letter_json = '{"html": "<p>Where things stand</p>", "plaintext": "line1\\nline2\\nline3"}'
+    stdout = (
+        session_brief_noise
+        + "---ORACLE-LETTER-START---\n"
+        + letter_json + "\n"
+        + "---ORACLE-LETTER-END---\n"
+    )
+
+    preflight_ok = SimpleNamespace(returncode=0, stdout="ok",    stderr="")
+    letter_resp  = SimpleNamespace(returncode=0, stdout=stdout,  stderr="")
+
+    with patch("core.pipeline.subprocess.run", side_effect=[preflight_ok, letter_resp]):
+        result = run_letter(signals_path, PROMPTS_DIR, tmp_path, db, "2026-06-13")
+
+    assert result["fallback"] is False
+    assert result["html"] == "<p>Where things stand</p>"
+    assert "line1" in result["plaintext"] and "line2" in result["plaintext"]
+
+
+# ---------------------------------------------------------------------------
+# test_extract_brace_fallback
+# ---------------------------------------------------------------------------
+
+def test_extract_brace_fallback(db, tmp_path):
+    """No markers but valid JSON braces in stdout -> extracted correctly, fallback=False."""
+    from core.pipeline import run_letter
+
+    signals      = load_fixture("signals_one_mover.json")
+    signals_path = tmp_path / "2026-06-13.signals.json"
+    signals_path.write_text(json.dumps(signals), encoding="utf-8")
+
+    letter_json = '{"html": "<p>Where things stand</p>", "plaintext": "line1\\nline2\\nline3"}'
+    stdout      = f"Some preamble text\n{letter_json}\nsome postamble"
+
+    preflight_ok = SimpleNamespace(returncode=0, stdout="ok",   stderr="")
+    letter_resp  = SimpleNamespace(returncode=0, stdout=stdout, stderr="")
+
+    with patch("core.pipeline.subprocess.run", side_effect=[preflight_ok, letter_resp]):
+        result = run_letter(signals_path, PROMPTS_DIR, tmp_path, db, "2026-06-13")
+
+    assert result["fallback"] is False
+    assert "html" in result and "plaintext" in result
+
+
+# ---------------------------------------------------------------------------
+# test_extract_unparseable
+# ---------------------------------------------------------------------------
+
+def test_extract_unparseable(db, tmp_path):
+    """No parseable JSON in stdout at all -> deterministic fallback."""
+    from core.pipeline import run_letter
+
+    signals      = load_fixture("signals_one_mover.json")
+    signals_path = tmp_path / "2026-06-13.signals.json"
+    signals_path.write_text(json.dumps(signals), encoding="utf-8")
+
+    stdout = "Sorry, I encountered an error. Please try again later."
+
+    preflight_ok = SimpleNamespace(returncode=0, stdout="ok",   stderr="")
+    letter_resp  = SimpleNamespace(returncode=0, stdout=stdout, stderr="")
+
+    with patch("core.pipeline.subprocess.run", side_effect=[preflight_ok, letter_resp]):
+        result = run_letter(signals_path, PROMPTS_DIR, tmp_path, db, "2026-06-13")
+
+    assert result["fallback"] is True
+    assert "html" in result and "plaintext" in result
