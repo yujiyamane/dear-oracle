@@ -167,8 +167,8 @@
 
 ```powershell
 # 1. place PRFAQ.md, INTERFACES.md, PLAN.md, prompts/*.md in the repo
-mkdir C:\Users\Admin\Documents\Life\Repos\dear-oracle
-cd C:\Users\Admin\Documents\Life\Repos\dear-oracle
+mkdir dear-oracle
+cd dear-oracle
 
 # 2. one sprint at a time, tests first
 claude "Read PRFAQ.md, INTERFACES.md, PLAN.md. Execute Sprint 0 exactly:
