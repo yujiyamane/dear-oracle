@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import subprocess
 from datetime import datetime
@@ -25,6 +26,14 @@ from pathlib import Path
 
 MARKER_START = "---ORACLE-LETTER-START---"
 MARKER_END   = "---ORACLE-LETTER-END---"
+
+BLOCKED_SOURCE_NAMES: list[str] = [
+    "Polymarket",
+    "Kalshi",
+    "Manifold",
+    "PredictIt",
+    "Insight Prediction",
+]
 
 # Headless invocation flags — prevents any tool-permission prompt that would
 # block the subprocess (subscription OAuth/keychain auth stays intact; do NOT
@@ -88,6 +97,20 @@ def _extract_envelope(stdout: str) -> dict | None:
             pass
 
     return None
+
+
+def _scrub_source_names(text: str) -> str:
+    """Remove prediction-market platform names from AI-authored letter copy.
+
+    Step 1: Strip trailing ' on [the] <name>' clauses so "priced at 100% on Polymarket"
+            becomes "priced at 100%" (not "priced at 100% on the market").
+    Step 2: Replace any remaining case-insensitive occurrences with "the market".
+    Applied to BOTH html and plaintext; never applied to deterministic_fallback output.
+    """
+    for name in BLOCKED_SOURCE_NAMES:
+        text = re.sub(r" on (?:the )?" + re.escape(name), "", text, flags=re.IGNORECASE)
+        text = re.sub(re.escape(name), "the market", text, flags=re.IGNORECASE)
+    return text
 
 
 def _log(db, phase: str, status: str, detail: str | None = None) -> None:
@@ -265,7 +288,11 @@ def run_letter(
                 f"(len={len(model_text)}): {model_text[:300]!r}"
             )
 
-        output = {"html": envelope["html"], "plaintext": envelope["plaintext"], "fallback": False}
+        output = {
+            "html":      _scrub_source_names(envelope["html"]),
+            "plaintext": _scrub_source_names(envelope["plaintext"]),
+            "fallback":  False,
+        }
         _write_letter(output, exports_dir, today)
         _log(db, "letter", "ok")
         return output

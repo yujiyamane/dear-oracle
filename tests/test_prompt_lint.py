@@ -51,3 +51,23 @@ def test_no_prohibited_tokens():
             violations.append(f"{f.name}: found '{match.group()}' at pos {match.start()}")
 
     assert not violations, "Prohibited tokens found outside guardrail:\n" + "\n".join(violations)
+
+
+def test_prompt_no_source_naming():
+    """letter.md must contain the no-source-naming HARD constraint.
+
+    The constraint must list the specific platforms to forbid AND specify the
+    allowed generic alternatives — so a reviewer can verify the rule is complete.
+    """
+    letter_text = (PROMPTS_DIR / "letter.md").read_text(encoding="utf-8")
+
+    for name in ["Polymarket", "Kalshi", "Manifold", "PredictIt"]:
+        assert name in letter_text, (
+            f"No-source-naming constraint must list '{name}' as a forbidden platform in letter.md"
+        )
+
+    # Must specify the allowed generic alternatives
+    assert ('"the market"' in letter_text or '"the crowd"' in letter_text), (
+        'letter.md must specify the allowed generic alternative ("the market" or "the crowd") '
+        "in the no-source-naming constraint"
+    )

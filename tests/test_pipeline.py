@@ -430,3 +430,59 @@ def test_cli_non_json_stdout(db, tmp_path):
 
     assert result["fallback"] is True, "non-JSON stdout must trigger deterministic fallback"
     assert "html" in result and "plaintext" in result
+
+
+# ---------------------------------------------------------------------------
+# test_scrub_source_name
+# ---------------------------------------------------------------------------
+
+def test_scrub_source_name(db, tmp_path):
+    """AI letter copy naming prediction-market platforms must be scrubbed before delivery.
+
+    Verifies:
+    - All BLOCKED_SOURCE_NAMES are removed from both html and plaintext.
+    - 'on Polymarket' is removed cleanly (not converted to 'on the market').
+    """
+    from core.pipeline import run_letter, BLOCKED_SOURCE_NAMES
+
+    signals      = load_fixture("signals_one_mover.json")
+    signals_path = tmp_path / "2026-06-13.signals.json"
+    signals_path.write_text(json.dumps(signals), encoding="utf-8")
+
+    dirty_html = (
+        "<p>AGI priced at 100% on Polymarket. "
+        "Kalshi has it at 95%. "
+        "The crowd on Manifold also agrees.</p>"
+    )
+    dirty_plaintext = "AGI priced at 100% on Polymarket\nKalshi: 95%\nManifold crowd agrees"
+
+    inner = (
+        "---ORACLE-LETTER-START---\n"
+        + json.dumps({"html": dirty_html, "plaintext": dirty_plaintext}) + "\n"
+        + "---ORACLE-LETTER-END---\n"
+    )
+    cli_stdout = json.dumps({"type": "result", "subtype": "success", "result": inner})
+
+    preflight_ok = SimpleNamespace(returncode=0, stdout="pong", stderr="")
+    letter_ok    = SimpleNamespace(returncode=0, stdout=cli_stdout, stderr="")
+
+    with patch("core.pipeline.subprocess.run", side_effect=[preflight_ok, letter_ok]):
+        result = run_letter(signals_path, PROMPTS_DIR, tmp_path, db, "2026-06-13")
+
+    assert result["fallback"] is False, f"valid envelope should not fallback: {result}"
+
+    for name in BLOCKED_SOURCE_NAMES:
+        assert name.lower() not in result["html"].lower(), (
+            f"blocked name '{name}' still present in html after scrub: {result['html']!r}"
+        )
+        assert name.lower() not in result["plaintext"].lower(), (
+            f"blocked name '{name}' still present in plaintext after scrub: {result['plaintext']!r}"
+        )
+
+    # 'on Polymarket' must be removed cleanly — NOT converted to 'on the market'
+    assert "on the market" not in result["html"], (
+        f"'on Polymarket' must be stripped, not replaced — got html: {result['html']!r}"
+    )
+    assert "on the market" not in result["plaintext"], (
+        f"'on Polymarket' must be stripped, not replaced — got plaintext: {result['plaintext']!r}"
+    )
