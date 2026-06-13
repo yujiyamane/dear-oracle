@@ -137,18 +137,20 @@ def _write_letter(envelope: dict, exports_dir, today: str) -> None:
 # ---------------------------------------------------------------------------
 
 def preflight(claude_cmd: str = "claude") -> bool:
-    """Run `claude -p "ping"` with headless flags; 30 s timeout.
+    """Run bare `claude -p "ping"`; 90 s timeout.
 
     Returns True if exit code is 0, False on any failure or timeout.
+    Heavy headless flags are NOT used here — they add failure surface to what
+    is a trivial liveness check and caused false auth-error fallbacks.
     """
     try:
         result = subprocess.run(
-            _build_argv(claude_cmd, "-p", "ping", *_HEADLESS_FLAGS),
+            _build_argv(claude_cmd, "-p", "ping"),
             capture_output=True,
             text=True,
             encoding="utf-8",
             errors="replace",
-            timeout=30,
+            timeout=90,
         )
         return result.returncode == 0
     except Exception:
