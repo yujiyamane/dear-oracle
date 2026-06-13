@@ -8,3 +8,6 @@ config/delivery.json
 config/questions.json
 .claude/
 __pycache__/
+
+data/*.signals.json
+data/logs/
