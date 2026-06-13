@@ -161,12 +161,65 @@ class CoverageTransition:
 
 
 @dataclass
+class StandingOutcome:
+    """One outcome entry in standings[].top_outcomes — INTERFACES.md §2 (D41)."""
+    label: str
+    prob_now: float
+    delta_24h_pp: float | None = None
+
+    @classmethod
+    def from_dict(cls, d: dict[str, Any]) -> StandingOutcome:
+        return cls(
+            label=d["label"],
+            prob_now=d["prob_now"],
+            delta_24h_pp=d.get("delta_24h_pp"),
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "label": self.label,
+            "prob_now": self.prob_now,
+            "delta_24h_pp": self.delta_24h_pp,
+        }
+
+
+@dataclass
+class Standing:
+    """One entry in standings[] — the Where-things-stand snapshot (D41)."""
+    event_id: str
+    event_title: str
+    interest_tag: str
+    is_binary: bool
+    top_outcomes: list[StandingOutcome]
+
+    @classmethod
+    def from_dict(cls, d: dict[str, Any]) -> Standing:
+        return cls(
+            event_id=d["event_id"],
+            event_title=d["event_title"],
+            interest_tag=d["interest_tag"],
+            is_binary=d["is_binary"],
+            top_outcomes=[StandingOutcome.from_dict(o) for o in d.get("top_outcomes", [])],
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "event_id": self.event_id,
+            "event_title": self.event_title,
+            "interest_tag": self.interest_tag,
+            "is_binary": self.is_binary,
+            "top_outcomes": [o.to_dict() for o in self.top_outcomes],
+        }
+
+
+@dataclass
 class MarketSignals:
     """Top-level market_signals[] export — INTERFACES.md §2."""
     schema_version: int
     source: str
     generated_at: str
     coverage_transitions: list[CoverageTransition]
+    standings: list[Standing]
     signals: list[SignalEvent]
 
     @classmethod
@@ -178,6 +231,7 @@ class MarketSignals:
             coverage_transitions=[
                 CoverageTransition.from_dict(ct) for ct in d.get("coverage_transitions", [])
             ],
+            standings=[Standing.from_dict(s) for s in d.get("standings", [])],
             signals=[SignalEvent.from_dict(s) for s in d.get("signals", [])],
         )
 
@@ -187,5 +241,6 @@ class MarketSignals:
             "source": self.source,
             "generated_at": self.generated_at,
             "coverage_transitions": [ct.to_dict() for ct in self.coverage_transitions],
+            "standings": [s.to_dict() for s in self.standings],
             "signals": [s.to_dict() for s in self.signals],
         }

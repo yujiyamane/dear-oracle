@@ -14,6 +14,8 @@ from core.models import (
     OutcomeSignal,
     SignalEvent,
     CoverageTransition,
+    StandingOutcome,
+    Standing,
     MarketSignals,
 )
 
@@ -138,6 +140,28 @@ INTERFACES_EXAMPLE = {
     "coverage_transitions": [
         {"interest": "surfing", "from": "dormant", "to": "active"}
     ],
+    "standings": [
+        {
+            "event_id": "16085",
+            "event_title": "2026 World Cup — winner",
+            "interest_tag": "soccer",
+            "is_binary": False,
+            "top_outcomes": [
+                {"label": "Spain",     "prob_now": 0.30, "delta_24h_pp": 2.0},
+                {"label": "England",   "prob_now": 0.20, "delta_24h_pp": None},
+                {"label": "Argentina", "prob_now": 0.10, "delta_24h_pp": -1.0},
+            ],
+        },
+        {
+            "event_id": "9001",
+            "event_title": "Fed rate cut by September",
+            "interest_tag": "economy",
+            "is_binary": True,
+            "top_outcomes": [
+                {"label": "Yes", "prob_now": 0.68, "delta_24h_pp": None},
+            ],
+        },
+    ],
     "signals": [
         {
             "event_id": "16085",
@@ -184,6 +208,22 @@ def test_signals_roundtrip():
     assert ct.from_status == "dormant"
     assert ct.to_status == "active"
 
+    assert len(ms.standings) == 2
+    wc = ms.standings[0]
+    assert wc.event_id == "16085"
+    assert wc.is_binary is False
+    assert len(wc.top_outcomes) == 3
+    assert wc.top_outcomes[0].label == "Spain"
+    assert wc.top_outcomes[0].prob_now == pytest.approx(0.30)
+    assert wc.top_outcomes[0].delta_24h_pp == pytest.approx(2.0)
+    assert wc.top_outcomes[1].delta_24h_pp is None
+    assert wc.top_outcomes[2].delta_24h_pp == pytest.approx(-1.0)
+    fed = ms.standings[1]
+    assert fed.is_binary is True
+    assert len(fed.top_outcomes) == 1
+    assert fed.top_outcomes[0].label == "Yes"
+    assert fed.top_outcomes[0].delta_24h_pp is None
+
     assert len(ms.signals) == 1
     sig = ms.signals[0]
     assert sig.event_id == "16085"
@@ -207,6 +247,10 @@ def test_signals_roundtrip():
     assert as_dict["source"] == INTERFACES_EXAMPLE["source"]
     assert as_dict["coverage_transitions"][0]["from"] == "dormant"
     assert as_dict["coverage_transitions"][0]["to"] == "active"
+    assert as_dict["standings"][0]["is_binary"] is False
+    assert as_dict["standings"][0]["top_outcomes"][0]["label"] == "Spain"
+    assert as_dict["standings"][0]["top_outcomes"][1]["delta_24h_pp"] is None
+    assert as_dict["standings"][1]["is_binary"] is True
     assert as_dict["signals"][0]["outcomes"][0]["prob_7d_ago"] is None
     assert as_dict["signals"][0]["outcomes"][0]["delta_7d_pp"] is None
 
