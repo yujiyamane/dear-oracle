@@ -1,0 +1,41 @@
+{
+  "schema_version": 1,
+  "source": "polymarket-gamma",
+  "generated_at": "2026-06-13T05:00:00+10:00",
+  "coverage_transitions": [],
+  "standings": [
+    {
+      "event_id": "16085",
+      "event_title": "Will a frontier lab declare AGI by end of 2027?",
+      "interest_tag": "ai",
+      "is_binary": true,
+      "top_outcomes": [
+        { "label": "Yes", "prob_now": 0.24, "delta_24h_pp": 6.0 }
+      ]
+    }
+  ],
+  "signals": [
+    {
+      "event_id": "16085",
+      "event_title": "Will a frontier lab declare AGI by end of 2027?",
+      "interest_tag": "ai",
+      "outcomes": [
+        {
+          "outcome_label": "Yes",
+          "market_id": "0xabc",
+          "url": "https://polymarket.com/event/agi-2027",
+          "prob_now": 0.24,
+          "prob_24h_ago": 0.18,
+          "prob_7d_ago": null,
+          "delta_24h_pp": 6.0,
+          "delta_7d_pp": null
+        }
+      ],
+      "threshold_pp": 5.0,
+      "threshold_exceeded": true,
+      "threshold_triggered_by": "delta_24h",
+      "volume_usd": 450000,
+      "end_date": "2027-12-31"
+    }
+  ]
+}
