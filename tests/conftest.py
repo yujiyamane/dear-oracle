@@ -104,6 +104,11 @@ def noisy_adapter() -> MockAdapter:
     return MockAdapter("gamma_worldcup_noisy.json")
 
 
+@pytest.fixture
+def ai_tags_adapter() -> MockAdapter:
+    return MockAdapter("gamma_tags_ai.json")
+
+
 # ---------------------------------------------------------------------------
 # SQLite in-memory db (Sprint 3+)
 # ---------------------------------------------------------------------------

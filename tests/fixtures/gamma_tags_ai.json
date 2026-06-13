@@ -1,0 +1,37 @@
+{
+  "events": [
+    {
+      "event_id": "ai-agi-2027",
+      "event_title": "Will AGI be declared by end of 2027?",
+      "volume_usd": 500000,
+      "end_date": "2027-12-31",
+      "tags": [
+        { "slug": "artificial-intelligence", "tag_id": "305" },
+        { "slug": "ai-regulation", "tag_id": "306" }
+      ],
+      "markets": [
+        {
+          "market_id": "m-yes-agi",
+          "outcome_label": "Yes",
+          "url": "https://polymarket.com/event/agi-2027/yes",
+          "prob_now": 0.24,
+          "delta_24h_pp": null,
+          "delta_7d_pp": null
+        },
+        {
+          "market_id": "m-no-agi",
+          "outcome_label": "No",
+          "url": "https://polymarket.com/event/agi-2027/no",
+          "prob_now": 0.76,
+          "delta_24h_pp": null,
+          "delta_7d_pp": null
+        }
+      ]
+    }
+  ],
+  "tags": [
+    { "slug": "artificial-intelligence", "tag_id": "305" },
+    { "slug": "ai-regulation", "tag_id": "306" },
+    { "slug": "sports", "tag_id": "100" }
+  ]
+}
