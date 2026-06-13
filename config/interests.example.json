@@ -1,0 +1,41 @@
+{
+  "schema_version": 1,
+  "updated_at": "2026-06-13T07:10:00+10:00",
+  "interests": [
+    {
+      "name": "soccer",
+      "status": "active",
+      "resolved_tags": [
+        { "slug": "world-cup", "tag_id": "204" },
+        { "slug": "epl", "tag_id": "118" }
+      ],
+      "focus": ["world cup", "premier league title"],
+      "keyword_fallback": "soccer",
+      "max_markets": 5,
+      "threshold_pp": 5.0,
+      "added_at": "2026-06-13"
+    },
+    {
+      "name": "ai",
+      "status": "active",
+      "resolved_tags": [
+        { "slug": "artificial-intelligence", "tag_id": "305" }
+      ],
+      "focus": ["AGI", "frontier models"],
+      "keyword_fallback": "artificial intelligence",
+      "max_markets": 5,
+      "threshold_pp": 5.0,
+      "added_at": "2026-06-13"
+    },
+    {
+      "name": "surfing",
+      "status": "dormant",
+      "resolved_tags": [],
+      "focus": [],
+      "keyword_fallback": "surfing",
+      "max_markets": 5,
+      "threshold_pp": 5.0,
+      "added_at": "2026-06-13"
+    }
+  ]
+}

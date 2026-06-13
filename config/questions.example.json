@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "questions": [
+    { "label": "Who will win the FIFA World Cup?",       "tag_id": "204", "query": "world cup winner" },
+    { "label": "Who will win the US Presidential election?", "tag_id": "99",  "query": "us president election" },
+    { "label": "Will AGI be declared by end of 2027?",   "tag_id": "305", "query": "AGI declared 2027" },
+    { "label": "Who wins the Premier League?",           "tag_id": "118", "query": "premier league title" },
+    { "label": "Who wins the Formula 1 championship?",   "tag_id": "412", "query": "formula 1 championship winner" },
+    { "label": "Next country to send humans to the Moon?","tag_id": "211", "query": "moon landing crewed" },
+    { "label": "Will Starship reach orbit?",             "tag_id": "211", "query": "starship orbit 2026" },
+    { "label": "Will the Fed cut rates this year?",      "tag_id": "87",  "query": "fed rate cut 2026" },
+    { "label": "Who wins the Australian federal election?","tag_id": "503","query": "australian federal election" },
+    { "label": "Will a major lab release a 10x GPT-4 model?","tag_id": "305","query": "GPT-4 successor frontier model" }
+  ]
+}

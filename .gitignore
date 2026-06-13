@@ -1,0 +1,10 @@
+data/oracle.db
+data/*.db-wal
+data/*.db-shm
+data/exports/
+data/letters/
+config/interests.json
+config/delivery.json
+config/questions.json
+.claude/
+__pycache__/
