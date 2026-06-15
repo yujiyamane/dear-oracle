@@ -5,49 +5,77 @@
 
 ## Status
 
-**Planned — not yet implemented (Sprint 5).**
+**LIVE — Sprint 5 Phase A.** Core pipeline (record → list → resolve → scores)
+is implemented and fully tested offline. Contrarian notes and usage-driven
+interest suggestions are planned for Phase B (see below).
 
-This skill and its underlying `core/brier.py` module are gated on Spike B
-resolving cleanly (see `docs/spike-b-verdict.md`). Spike B passed; Sprint 5
-build has not started. No `oracle-log` command exists in the repo yet.
+## Usage
 
-## Planned purpose
+```
+python oracle.py log record "<question>" <outcome_label> <user_prob> [--market-prob P]
+python oracle.py log list
+python oracle.py log resolve <id> <yes|no>
+python oracle.py log scores
+```
 
-Record your own predictions, score them against the market and against resolved
-reality, and surface calibration feedback over time.
+### record
 
-## Planned features
+Store a binary prediction: your stated probability that `outcome_label` occurs.
+`--market-prob` is optional; supply it to enable you-vs-market comparison later.
 
-**Prediction log**
-- Record: `oracle-log record "Spain wins World Cup" 0.40` — stores your
-  stated probability at the time alongside the current market price.
-- Review: `oracle-log list` — shows all open predictions with current market
-  price, your stated probability, and days open.
-- Resolve: `oracle-log resolve <id> <outcome>` — marks the outcome (1/0) and
-  triggers Brier scoring.
+```
+python oracle.py log record "Spain wins the tournament" Spain 0.40 --market-prob 0.35
+```
 
-**Multi-class Brier scoring**
-A question is a basket of binary outcomes; Brier over the basket is
-`(1/N) · Σ (p_i − o_i)²` (N=2 special case for binary questions). Baskets are
-scored only when all their markets are resolved; partially-resolved baskets stay
-`pending` and are re-checked on each daily run.
+### list
 
-**Calibration table**
-`oracle-log scores` renders a formatted table: question, your probability,
-market probability at time of record, outcome, Brier score. No AI narrative on
-the log in v1 — deterministic display only.
+Show all open predictions with days open, your probability, and market probability.
 
-**Contrarian note (Sprint 5)**
+```
+python oracle.py log list
+```
+
+### resolve
+
+Mark the outcome (`yes` / `no`). Computes and stores the binary Brier score.
+
+```
+python oracle.py log resolve 1 yes
+```
+
+### scores
+
+Render a calibration table for all resolved predictions.
+
+```
+python oracle.py log scores
+```
+
+Output columns: `question | your p | mkt p | outcome | Brier`
+Followed by mean Brier for you and (where market prob is available) for the
+market — lets you see whether you beat the consensus at record time. Plain text,
+source-agnostic (no platform names).
+
+## Brier score
+
+**Binary formula**: `(p − o)²` where `p` is your stated probability and
+`o = 1` if the outcome occurred, `0` otherwise.
+
+Implemented as the multi-class special case:
+`binary_brier(p, occurred) = multiclass_brier([p, 1-p], [1,0] if occurred else [0,1])`
+which reduces to `(p − o)²`.
+
+General form: `(1/N) · Σ(p_i − o_i)²`
+
+Lower is better: **0 = perfect calibration, 1 = worst possible for a binary prediction.**
+
+## Planned features (Phase B)
+
+**Contrarian note** — *(still planned)*
 Surfaced per question: counter-arguments the market may be under-weighting,
 clearly labelled as commentary (e.g. *"favourites have lost in the knockout
 rounds in 3 of the last 4 tournaments"*). Never investment advice.
 
-**Usage-driven interest suggestions (Sprint 5)**
+**Usage-driven interest suggestions** — *(still planned)*
 If you repeatedly ask the Predictor about an unlisted topic, `oracle-log` offers
 to add it to your `interests.json` profile.
-
-## Sprint 5 gate
-
-Sprint 5 does not start until the Spike B verdict on basket-resolution timing
-is confirmed and the MVP fallback is decided (manual `resolved_outcome` entry
-via this skill, or Brier deferred). See PRFAQ.md Q19.

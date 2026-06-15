@@ -32,16 +32,21 @@ CREATE TABLE IF NOT EXISTS alerts (
   PRIMARY KEY (alert_date, market_id)
 );
 
--- one row per QUESTION (event), not per market
+-- Sprint 5 migration: drop placeholder table so new schema applies cleanly.
+-- The old table had no rows (oracle-log was not yet implemented).
+DROP TABLE IF EXISTS prediction_log;
+
+-- prediction log (oracle-log) — one row per binary prediction
 CREATE TABLE IF NOT EXISTS prediction_log (
   id            INTEGER PRIMARY KEY,
-  asked_at      TEXT NOT NULL,
   question      TEXT NOT NULL,
-  event_id      TEXT,
-  my_probs      TEXT,             -- JSON {outcome_label: prob} mirroring outcomes[]
-  market_probs  TEXT,             -- JSON {outcome_label: prob} at ask time
-  resolved_at   TEXT,             -- filled only when ALL basket markets resolved
-  outcomes_json TEXT,             -- JSON {outcome_label: 0|1} final
-  brier_mine    REAL,             -- multi-class (1/N) sum (p_i - o_i)^2
-  brier_market  REAL
+  outcome_label TEXT NOT NULL,
+  user_prob     REAL NOT NULL,
+  market_prob   REAL,             -- market's prob at record time; NULL if not provided
+  recorded_at   TEXT NOT NULL,    -- ISO-8601 local
+  status        TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open', 'resolved')),
+  occurred      INTEGER,          -- 1=yes 0=no NULL=open
+  brier_score   REAL,             -- binary_brier(user_prob, occurred) after resolve
+  resolved_at   TEXT              -- ISO-8601 local; NULL until resolved
 );
+CREATE INDEX IF NOT EXISTS idx_pred_status ON prediction_log (status);
