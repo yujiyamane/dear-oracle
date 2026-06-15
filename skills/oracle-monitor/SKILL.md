@@ -9,8 +9,9 @@ Run the daily Monitor pipeline: collect market snapshots, compute 24h/7d deltas,
 check per-interest thresholds, and send the morning letter via the configured
 delivery adapter (GAS or SMTP).
 
-**Status: LIVE (v1)** — deterministic letter path is production. AI-authored
-narrative letter is Phase 2 (config-isolation work pending).
+**Status: LIVE (v1)** — deterministic daily letter is the reliable production path.
+AI-authored narrative (`claude -p`) is best-effort: generated when the environment
+allows, falls back to the deterministic letter automatically otherwise.
 
 ## What the Monitor does
 
@@ -69,8 +70,10 @@ Logs go to `data/logs/dear-oracle.log`.
 | GAS + Task Scheduler automation | ✅ LIVE |
 | SMTP delivery | ✅ LIVE |
 | Missed-day backfill | ✅ LIVE |
-| AI-authored narrative (`claude -p prompts/letter.md`) | Phase 2 |
+| AI-authored narrative (`claude -p prompts/letter.md`) | Best-effort (falls back to deterministic) |
 
-The AI path blocks for 300 s in a scheduled context because `claude` loads the
-full personal Claude Code session. Phase 2 hypothesis: isolate with a clean
-`CLAUDE_CONFIG_DIR` (no skills/MCP) and a non-interactive permission-bypass flag.
+The AI path is implemented but unreliable in a scheduled context: invoking `claude`
+loads the full personal session (skills, MCP servers, memory), which blocks or times
+out before the model call begins. The oracle falls back to the deterministic letter
+automatically. A robust implementation would use a clean `CLAUDE_CONFIG_DIR` (no
+skills/MCP) or the Anthropic API directly — future work.

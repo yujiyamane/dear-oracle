@@ -1,7 +1,7 @@
 # Dear Oracle (DO) — PRFAQ v0.8
 
 > *Dear Oracle — letters from the crowd*
-> Status: v1 SHIPPED — Sprint 4 complete (collect → letter → Drive → doGet → email, deterministic fallback, GAS+Scheduler); AI narrative → Phase 2, 2026-06-13
+> Status: v1 SHIPPED — Sprint 5 Phase A complete (oracle-log + Brier, 71 tests green, 2026-06-15); AI narrative implemented (Sprint 4) but best-effort in scheduled context — deterministic letter is the proven production path
 > Family: Dear Keyperson (DK) · Dawn Patrol (DP) · **Dear Oracle (DO)**
 > Companion: INTERFACES.md (the contract), PLAN.md (the build), prompts/ (the voice)
 
@@ -270,7 +270,9 @@ All SKILL.md files agent-agnostic. Personal configs gitignored; examples sanitis
 v1 internal: Predictor answers a free-text question end-to-end in <60s (with web search; <30s without); Monitor produces its Day-1 confirmation immediately and its first delta letter from day 2; zero API billing confirmed over 30 days; the full pytest suite (deterministic core + dryRun E2E + prompt lint) runs green with **zero Claude calls**. Portfolio: a stranger reaches a first answer in under 5 minutes from the README; GitHub stars as a lagging signal.
 
 **Q18. Out of scope for v1**
-Trading or order placement of any kind. Real-time/intraday alerting. Macro Correlation View (Phase 2). Kalshi adapter (Phase 2). Static-page live-demo deck (Phase 2 showcase — requires a browser CORS check against the market API first). DK bridge (future). Reply-language locales (v2). Contrarian note + usage-driven interest suggestions (Sprint 5). Mobile app.
+Trading or order placement of any kind. Real-time/intraday alerting. Macro Correlation View (Phase 2). Kalshi adapter (Phase 2). Static-page live-demo deck (Phase 2 showcase — requires a browser CORS check against the market API first). DK bridge (future). Reply-language locales (v2). Contrarian note + usage-driven interest suggestions (Sprint 5 Phase B — not yet built). Mobile app.
+
+Note: Brier-scored prediction log (`oracle-log`: record/resolve/scores) is **LIVE** as of Sprint 5 Phase A.
 
 **Q19. Build order (LOCKED)**
 - **Sprint 0** — placement + contracts + spike. **First action: place PRFAQ.md + INTERFACES.md in the repo** (reviews assume both are on disk). Finalise INTERFACES.md. **Spike B** (the only remaining spike): verify CLOB exposes resolution cleanly (`closed` + final outcome prices) for Brier, AND that `/prices-history` works keyless for missed-day backfill — basket-resolution timing is the real test, not field existence. (Spike A — browser CORS — was killed when v0.6 went local-first; no browser calls the API in v1.)
@@ -291,20 +293,18 @@ Gate: PRFAQ ✅ -> UX mocks ✅ -> Grill Me ✅ (D1–D40) -> PLAN.md -> sub-age
 
 ---
 
-## Phase 2 — AI-authored narrative letter
+## Phase 2 — AI-authored narrative letter (best-effort, not guaranteed)
 
-**Problem (observed in Sprint 4):** The `claude -p prompts/letter.md` step blocks for the full 300 s timeout on the owner's PC because invoking `claude` from a scheduled task loads the complete Claude Code session — skills, MCP servers, memory system, and interactive permission prompts — before the model call even begins. The deterministic fallback fires reliably; the AI narrative never completes.
+**What was built (Sprint 4):** The `claude -p prompts/letter.md` step is implemented and wired into the pipeline. The JSON-envelope contract (`{"html":…,"plaintext":…}`), the headless flags (`--output-format json`, `--permission-mode dontAsk`, `--tools ""`, `--disable-slash-commands`), and the deterministic fallback on any failure are all in place and tested.
 
-**Hypothesis:** Run the letter call with a clean, minimal config so it starts in seconds and exits cleanly:
+**Known constraint:** In a scheduled (Task Scheduler) context, invoking `claude` loads the complete personal Claude Code session — skills, MCP servers, memory system — before the model call begins. This makes the step unreliable: the pipeline falls back to the deterministic letter most of the time. The **deterministic daily letter is the proven production path**; AI narrative is a best-effort enhancement that fires when the environment allows.
 
-1. `CLAUDE_CONFIG_DIR` set to a throwaway directory with no skills, no MCP, no memory — isolates the call from the personal session entirely.
-2. A permission-bypass flag (e.g. `--dangerously-skip-permissions` or equivalent non-interactive mode) so Task Scheduler never stalls on a prompt.
-3. A hard timeout wrapper (`timeout /t 60`) to enforce a known ceiling and fall back gracefully if the model still overruns.
+**Why it is hard to fix in the current architecture:** The personal `claude` binary shares the user's `CLAUDE_CONFIG_DIR`. Isolating the call requires either (a) a clean throwaway config dir with no skills/MCP, or (b) bypassing the CLI entirely and calling the Anthropic API directly with `requests` + an API key — which would trade the $0 subscription-quota model for metered API spend. Both are valid future approaches; neither is the right trade-off for v1.
 
-This is a pure infrastructure change — the prompt files (`prompts/letter.md`, `prompts/why.md`, `prompts/scenario.md`) and the JSON-envelope contract are unchanged. If confirmed, AI narrative becomes the default path and the deterministic form becomes the pure fallback.
+**What remains the same:** The prompt files (`prompts/letter.md`, `prompts/why.md`, `prompts/scenario.md`), the JSON-envelope contract, and the fallback logic are correct and unchanged. If the AI step does complete (e.g. in an interactive session or a cleaner environment), the full narrative letter is delivered. If it does not, the oracle never goes silent — the deterministic letter goes out instead and the fallback is logged.
 
-**Out of scope for v1.** The v1 deterministic letter is stable and correct; the AI narrative is an enhancement, not a correctness fix.
+**Sprint 5 Phase B (not yet built):** Contrarian note per prediction (one web search, clearly labelled commentary) and usage-driven interest suggestions remain planned work — not the AI-narrative reliability problem above.
 
 ---
 
-*v1 shipped — 2026-06-13. Sprint 4 complete: full pipeline live (collect → letter → Drive → doGet → email), GAS+Scheduler automation running, deterministic fallback proven. AI narrative deferred to Phase 2 (config-isolation hypothesis above). Next sprint gate: Spike B verdict on Brier resolution → Sprint 5 (oracle-log + Brier).*
+*v1 shipped — 2026-06-13. Sprint 4 complete: full pipeline live (collect → letter → Drive → doGet → email), GAS+Scheduler automation running, deterministic fallback proven. Sprint 5 Phase A complete (2026-06-15): oracle-log LIVE (record/resolve/scores, Brier scoring, 71 tests green). AI narrative implemented but best-effort in a scheduled context — deterministic letter is the proven production path (see Phase 2 section). Sprint 5 Phase B next: Contrarian note + usage-driven interest suggestions.*

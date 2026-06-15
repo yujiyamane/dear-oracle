@@ -22,10 +22,11 @@ Dear Oracle also watches the markets you care about. Every morning it compares t
 | Predictor (NL → ranked probabilities) | ✅ LIVE |
 | Full pipeline (collect → letter → Drive → doGet → email) | ✅ LIVE |
 | GAS + Task Scheduler automation | ✅ LIVE |
-| Deterministic daily letter (fallback path) | ✅ LIVE |
-| AI-authored narrative letter (`claude -p`) | Phase 2 |
+| Deterministic daily letter | ✅ LIVE — reliable production path |
+| Brier-scored prediction log (`oracle-log`) | ✅ LIVE |
+| AI-authored narrative letter (`claude -p`) | Best-effort (experimental) |
 
-The deterministic letter (Where-things-stand snapshot + any transitions) is the production path for v1. The AI-narrative path via `claude -p` loads the full Claude Code session on the owner's PC — skills, MCP servers, memory, permission prompts — and blocks for the full 300 s timeout. Phase 2 hypothesis: run the call with a clean `CLAUDE_CONFIG_DIR` (no skills, no MCP) and a non-interactive permission-bypass flag so it completes in seconds.
+**The deterministic daily letter is the reliable production path.** The AI-narrative path via `claude -p` is implemented and wired in, but unreliable in a scheduled context: invoking `claude` loads the full personal session (skills, MCP servers, memory) which blocks or times out before the model call begins. The pipeline falls back to the deterministic letter automatically whenever the AI step fails or times out. A robust AI-narrative path would require an isolated config (`CLAUDE_CONFIG_DIR` with no skills/MCP) or direct Anthropic API use — future work.
 
 ## Quick start
 
