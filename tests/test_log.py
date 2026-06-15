@@ -3,9 +3,14 @@
 Zero network calls, zero Claude calls.
 Uses the in-memory SQLite db fixture from conftest.py.
 """
+import sqlite3
+from pathlib import Path
+
 import pytest
 
 from core.log import list_open, record, resolve, scores
+
+SCHEMA_SQL = Path(__file__).parent.parent / "data" / "schema.sql"
 
 
 def test_record_shows_in_list_open(db):
@@ -104,3 +109,27 @@ def test_scores_empty_when_no_resolved(db):
     assert result["rows"] == []
     assert result["mean_user_brier"] is None
     assert result["mean_market_brier"] is None
+
+
+def test_schema_reapply_does_not_wipe_predictions():
+    """Regression guard: re-executing schema.sql on an open db must NOT drop rows.
+
+    Simulates what _db_connect() and _open_db() do on every process start:
+    open the same connection, executescript(schema.sql), then confirm the
+    previously-recorded row is still present.
+    """
+    conn = sqlite3.connect(":memory:")
+    conn.row_factory = sqlite3.Row
+    schema = SCHEMA_SQL.read_text(encoding="utf-8")
+    conn.executescript(schema)
+
+    pid = record(conn, "Persistence test?", "Yes", 0.70, None)
+    assert pid is not None
+
+    # Re-apply schema exactly as _db_connect does on a second open
+    conn.executescript(schema)
+
+    rows = list_open(conn)
+    assert len(rows) == 1, "Row was wiped by schema re-execution (DROP regression)"
+    assert rows[0]["question"] == "Persistence test?"
+    conn.close()

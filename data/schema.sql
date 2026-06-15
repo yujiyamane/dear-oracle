@@ -32,10 +32,6 @@ CREATE TABLE IF NOT EXISTS alerts (
   PRIMARY KEY (alert_date, market_id)
 );
 
--- Sprint 5 migration: drop placeholder table so new schema applies cleanly.
--- The old table had no rows (oracle-log was not yet implemented).
-DROP TABLE IF EXISTS prediction_log;
-
 -- prediction log (oracle-log) — one row per binary prediction
 CREATE TABLE IF NOT EXISTS prediction_log (
   id            INTEGER PRIMARY KEY,
