@@ -35,6 +35,9 @@ BLOCKED_SOURCE_NAMES: list[str] = [
     "Insight Prediction",
 ]
 
+# Haiku pin for best-effort AI narrative — fast and cheap; fallback handles failures.
+_SYNTH_MODEL = "claude-haiku-4-5-20251001"
+
 # Headless invocation flags — prevents any tool-permission prompt that would
 # block the subprocess (subscription OAuth/keychain auth stays intact; do NOT
 # use --bare which strictly requires ANTHROPIC_API_KEY and ignores keychain).
@@ -42,11 +45,35 @@ BLOCKED_SOURCE_NAMES: list[str] = [
 # we rely on flags only.  --tools "" disables all built-in tools (no prompts
 # needed).  --permission-mode dontAsk is belt-and-suspenders.
 _HEADLESS_FLAGS: list[str] = [
+    "--model", _SYNTH_MODEL,
     "--output-format", "json",
     "--permission-mode", "dontAsk",
     "--tools", "",               # "" disables ALL built-in tools → no permission prompt
     "--disable-slash-commands",  # disable all skills / slash commands
 ]
+
+# Regex that matches the leading environment/model badge Claude Code inserts.
+# Pattern: 【...】 followed by optional content to end of first line.
+_BADGE_RE = re.compile(r"^【[^】]*】[^\n]*\n?")
+
+
+def strip_model_badge(text: str, *, json_mode: bool = False) -> str:
+    """Remove leading 【…】 badge line and markdown fences from model output.
+
+    json_mode=True also extracts the first '{' to the last '}' so callers
+    do not need to replicate that boundary logic.  Belt-and-braces guard
+    even after the global CLAUDE.md is tightened to suppress badges for
+    interactive sessions — this function is a no-op when no badge is present.
+    """
+    text = _BADGE_RE.sub("", text)
+    text = re.sub(r"^```[a-z]*\s*", "", text)
+    text = re.sub(r"\s*```\s*$", "", text)
+    if json_mode:
+        start = text.find("{")
+        end   = text.rfind("}")
+        if start != -1 and end > start:
+            text = text[start : end + 1]
+    return text.strip()
 
 
 # ---------------------------------------------------------------------------
@@ -272,7 +299,8 @@ def run_letter(
             )
 
         # --output-format json wraps model output: {"type":"result","result":"<text>"}
-        # Extract the model text first, then apply marker/brace extraction on it.
+        # Extract the model text first, strip any badge/fence prefix, then
+        # apply marker/brace extraction.
         try:
             cli_response = json.loads(proc.stdout)
             model_text   = cli_response["result"]
@@ -282,6 +310,7 @@ def run_letter(
                 f"(len={len(proc.stdout)}): {proc.stdout[:300]!r}"
             ) from exc
 
+        model_text = strip_model_badge(model_text, json_mode=True)
         envelope = _extract_envelope(model_text)
         if envelope is None:
             raise ValueError(

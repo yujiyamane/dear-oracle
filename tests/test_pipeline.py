@@ -486,3 +486,37 @@ def test_scrub_source_name(db, tmp_path):
     assert "on the market" not in result["plaintext"], (
         f"'on Polymarket' must be stripped, not replaced — got plaintext: {result['plaintext']!r}"
     )
+
+
+# ---------------------------------------------------------------------------
+# test_strip_model_badge_*
+# ---------------------------------------------------------------------------
+
+def test_strip_model_badge_json_with_badge():
+    """Badge prefix + JSON body -> badge stripped, JSON bounds extracted."""
+    from core.pipeline import strip_model_badge
+
+    badge = "【LOCAL/Haiku4.5】"
+    raw   = f'{badge}\n{{"html":"<p>t</p>","plaintext":"line"}}'
+    result = strip_model_badge(raw, json_mode=True)
+    assert result == '{"html":"<p>t</p>","plaintext":"line"}'
+
+
+def test_strip_model_badge_plain_text_with_badge():
+    """Badge prefix + plain narrative -> badge stripped, text preserved."""
+    from core.pipeline import strip_model_badge
+
+    badge = "【LOCAL/Haiku4.5】"
+    raw   = f"{badge}\nplain narrative text"
+    result = strip_model_badge(raw)
+    assert "【" not in result
+    assert "plain narrative text" in result
+
+
+def test_strip_model_badge_passthrough():
+    """Input without badge is returned unchanged (json_mode=True)."""
+    from core.pipeline import strip_model_badge
+
+    raw    = '{"html":"<p>ok</p>","plaintext":"line"}'
+    result = strip_model_badge(raw, json_mode=True)
+    assert result == raw
