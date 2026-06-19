@@ -561,8 +561,15 @@ class TestE9FallbackSafety:
 
     def test_sample_keys_are_not_wl_n(self):
         """Sample.json topic keys must be SAMPLE-N, not WL-N, to avoid colliding with real data."""
+        import os
         from core.scan import load_watchlist
-        topics = load_watchlist(notion_token=None)
+        saved = {k: os.environ.pop(k, None) for k in ("NOTION_TOKEN", "DK_WATCHLIST_DB_ID")}
+        try:
+            topics = load_watchlist(notion_token=None)
+        finally:
+            for k, v in saved.items():
+                if v is not None:
+                    os.environ[k] = v
         for t in topics:
             key = t["topic_key"]
             assert not key.startswith("WL-"), (

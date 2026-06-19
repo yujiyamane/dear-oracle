@@ -25,8 +25,28 @@ _SAMPLE_JSON = PROJECT_ROOT / "data" / "sample.json"
 _NOTION_BASE = "https://api.notion.com/v1"
 _NOTION_VERSION = "2022-06-28"
 
-# DK Watchlist DB page ID (no hyphens) — same constant as 02_dear_keyperson.js
-DK_WATCHLIST_DB_ID = "5b71f847e9d44621b47bc71d1a7ad6e9"
+_ENV_FILE = PROJECT_ROOT / "config" / ".env"
+
+
+def _load_env_file() -> None:
+    """Load config/.env into os.environ if not already set (no-op if file absent)."""
+    if not _ENV_FILE.exists():
+        return
+    for line in _ENV_FILE.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, _, val = line.partition("=")
+        key = key.strip()
+        if key and key not in os.environ:
+            os.environ[key] = val.strip()
+
+
+_load_env_file()
+
+
+def _watchlist_db_id() -> str:
+    return os.environ.get("DK_WATCHLIST_DB_ID", "")
 
 
 # ---------------------------------------------------------------------------
@@ -72,7 +92,10 @@ def _load_sample() -> list[dict]:
 
 def _fetch_notion_watchlist(token: str) -> list[dict]:
     """Fetch active topics from Notion 08a Watchlist DB."""
-    url = f"{_NOTION_BASE}/databases/{DK_WATCHLIST_DB_ID}/query"
+    db_id = _watchlist_db_id()
+    if not db_id:
+        raise ValueError("DK_WATCHLIST_DB_ID not set — add it to config/.env")
+    url = f"{_NOTION_BASE}/databases/{db_id}/query"
     payload = json.dumps({"filter": {"property": "Active", "checkbox": {"equals": True}}}).encode()
     req = urllib.request.Request(
         url,

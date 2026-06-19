@@ -1,3 +1,4 @@
+config/.env
 data/oracle.db
 data/*.db-wal
 data/*.db-shm
