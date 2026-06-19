@@ -1,17 +1,20 @@
 """tests/test_scan.py — Phase 2-E TDD: scan module + do_hits.json.
 
 E1: reads watchlist via NOTION_TOKEN; if absent, falls back to sample.json; never crashes on missing token.
-E2: per active topic, queries Polymarket; produces hits keyed by topic_key (WL_ID); probability in [0,1], delta_7d decimal.
+E2: per active topic, queries Polymarket; produces hits keyed by topic_key (WL_ID ^WL-\\d+$); probability in [0,1], delta_7d decimal.
 E3: do_hits.json validates against schema; meta.status in {ok,partial}; written ATOMICALLY (tmp + os.replace).
 E4: portfolio digest renders from sample.json -> brand-styled HTML with >=1 market; contains NO real names / private Notion IDs.
 E5: full run < 120s on sample.json.
+E6: NOTION_TOKEN-gated integration test — live Notion returns WL-N keys + non-empty titles.
+E7: DK contract — every hit entry exposes exactly the fields DK_parseDoHitsData_ reads.
 
-Zero live API calls — all Polymarket calls mocked.
+Zero live API calls (except E6 which requires NOTION_TOKEN env var).
 """
 from __future__ import annotations
 
 import json
 import os
+import re
 import time
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -96,7 +99,7 @@ class TestE1WatchlistFallback:
 class TestE2HitsSchema:
     def _sample_topics(self):
         return [
-            {"topic_key": "sample-001", "topic_label": "Interest Rates", "weight": 5,
+            {"topic_key": "WL-1", "topic_label": "Interest Rates", "weight": 5,
              "keywords": "interest rates;RBA;central bank", "lang": ["en-AU"]},
         ]
 
@@ -106,7 +109,24 @@ class TestE2HitsSchema:
         event = _make_event("Will RBA cut rates?")
         adapter = _mock_adapter([event])
         result = scan(watchlist=self._sample_topics(), adapter=adapter)
-        assert "sample-001" in result["hits"], "hits must be keyed by topic_key"
+        assert "WL-1" in result["hits"], "hits must be keyed by topic_key"
+
+    def test_topic_key_matches_wl_pattern(self):
+        """topic_key from sample.json must match ^WL-\\d+$ (never a raw page ID)."""
+        from core.scan import scan, load_watchlist
+        topics = load_watchlist(notion_token=None)
+        wl_pattern = re.compile(r"^WL-\d+$")
+        for t in topics:
+            assert wl_pattern.match(t["topic_key"]), (
+                f"topic_key '{t['topic_key']}' must match ^WL-\\d+$"
+            )
+        events = [_make_event("Market for test")]
+        adapter = _mock_adapter(events)
+        result = scan(watchlist=topics, adapter=adapter)
+        for key in result["hits"]:
+            assert wl_pattern.match(key), (
+                f"hit key '{key}' must match ^WL-\\d+$"
+            )
 
     def test_prob_now_in_range(self):
         """prob_now must be in [0, 1] for every hit."""
@@ -135,7 +155,7 @@ class TestE2HitsSchema:
         from core.scan import scan
         adapter = _mock_adapter([])
         result = scan(watchlist=self._sample_topics(), adapter=adapter)
-        assert "sample-001" not in result["hits"], (
+        assert "WL-1" not in result["hits"], (
             "topics with no Polymarket hits must be absent from hits dict"
         )
 
@@ -173,7 +193,7 @@ class TestE3AtomicWrite:
                 "topics_with_hits": 1,
             },
             "hits": {
-                "sample-001": [
+                "WL-1": [
                     {"title": "Test market", "url": "https://polymarket.com/event/test",
                      "prob_now": 0.6, "delta_7d": -0.05, "volume_usd": 10000.0}
                 ]
@@ -307,6 +327,99 @@ class TestE5Performance:
         elapsed = time.monotonic() - start
 
         assert elapsed < 120, f"scan took {elapsed:.1f}s — must be < 120s"
+
+
+# ---------------------------------------------------------------------------
+# E6 — NOTION_TOKEN-gated integration test (skipped when token absent)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.skipif(not os.environ.get("NOTION_TOKEN"), reason="NOTION_TOKEN not set")
+class TestE6NotionIntegration:
+    def test_live_watchlist_returns_wl_keys(self):
+        """Live Notion returns topics keyed WL-N with non-empty titles."""
+        from core.scan import load_watchlist
+        topics = load_watchlist()
+        assert len(topics) >= 1, "Notion watchlist must return at least one active topic"
+        wl_pattern = re.compile(r"^WL-\d+$")
+        for t in topics:
+            assert wl_pattern.match(t["topic_key"]), (
+                f"Live topic_key '{t['topic_key']}' must match ^WL-\\d+$"
+            )
+            assert t.get("topic_label"), (
+                f"Live topic {t['topic_key']} must have a non-empty title"
+            )
+
+
+# ---------------------------------------------------------------------------
+# E7 — DK contract: every hit entry exposes exactly the fields DK reads
+# ---------------------------------------------------------------------------
+
+class TestE7DKContract:
+    """Asserts do_hits output matches what DK_parseDoHitsData_ consumes.
+
+    DK reads: m.title → market_title, m.url, m.prob_now → probability,
+              m.delta_7d, m.volume_usd  (all other fields are ignored).
+    """
+
+    _DK_REQUIRED = {"title", "url", "prob_now", "delta_7d", "volume_usd"}
+
+    def test_hit_entries_expose_dk_fields(self):
+        """Each market entry in hits must contain every field DK reads."""
+        from core.scan import scan
+        event = _make_event("Will interest rates fall?", prob=0.55, prob_7d=0.50)
+        adapter = _mock_adapter([event])
+        topics = [{"topic_key": "WL-1", "topic_label": "Rates", "weight": 5,
+                   "keywords": "rates;RBA", "lang": ["en-AU"]}]
+        result = scan(watchlist=topics, adapter=adapter)
+        assert result["hits"], "scan must produce at least one hit for this topic"
+        for key, markets in result["hits"].items():
+            for m in markets:
+                missing = self._DK_REQUIRED - m.keys()
+                assert not missing, (
+                    f"Hit entry for {key} missing DK-required fields: {missing}"
+                )
+
+    def test_probability_is_0_1_float(self):
+        """DK stores m.prob_now as probability (0..1); must not be a percentage."""
+        from core.scan import scan
+        event = _make_event("AI takeover by 2030?", prob=0.18)
+        adapter = _mock_adapter([event])
+        topics = [{"topic_key": "WL-2", "topic_label": "AI", "weight": 4,
+                   "keywords": "AI;LLM", "lang": ["en-AU"]}]
+        result = scan(watchlist=topics, adapter=adapter)
+        for markets in result["hits"].values():
+            for m in markets:
+                assert 0.0 <= m["prob_now"] <= 1.0, (
+                    f"prob_now {m['prob_now']} must be float 0-1 (DK stores as probability)"
+                )
+
+    def test_delta_7d_is_decimal_not_pp(self):
+        """DK stores m.delta_7d as decimal (e.g. -0.05), NOT percentage points (-5pp)."""
+        from core.scan import scan
+        event = _make_event("Property crash?", prob=0.30, prob_7d=0.40)
+        adapter = _mock_adapter([event])
+        topics = [{"topic_key": "WL-3", "topic_label": "Property", "weight": 3,
+                   "keywords": "property;housing", "lang": ["en-AU"]}]
+        result = scan(watchlist=topics, adapter=adapter)
+        for markets in result["hits"].values():
+            for m in markets:
+                d = m["delta_7d"]
+                if d is not None:
+                    assert -1.0 <= d <= 1.0, (
+                        f"delta_7d {d} must be decimal [-1,1], not percentage points"
+                    )
+
+    def test_stale_check_uses_meta_fields(self):
+        """DK checks data.meta.status and age; both must be present in output."""
+        from core.scan import scan
+        adapter = _mock_adapter([])
+        result = scan(watchlist=[], adapter=adapter)
+        assert "meta" in result, "do_hits must have a meta block"
+        assert "generated_at" in result["meta"], "meta.generated_at required for DK age check"
+        assert "status" in result["meta"], "meta.status required for DK stale check"
+        assert result["meta"]["status"] in ("ok", "partial"), (
+            f"meta.status must be 'ok' or 'partial', got {result['meta']['status']!r}"
+        )
 
 
 # ---------------------------------------------------------------------------

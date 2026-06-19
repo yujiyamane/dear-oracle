@@ -60,7 +60,7 @@ def _load_sample() -> list[dict]:
 def _fetch_notion_watchlist(token: str) -> list[dict]:
     """Fetch active topics from Notion 08a Watchlist DB."""
     url = f"{_NOTION_BASE}/databases/{DK_WATCHLIST_DB_ID}/query"
-    payload = json.dumps({"filter": {"property": "Status", "status": {"equals": "Active"}}}).encode()
+    payload = json.dumps({"filter": {"property": "Active", "checkbox": {"equals": True}}}).encode()
     req = urllib.request.Request(
         url,
         data=payload,
@@ -77,8 +77,12 @@ def _fetch_notion_watchlist(token: str) -> list[dict]:
     topics = []
     for page in data.get("results", []):
         props = page.get("properties", {})
-        topic_key = page["id"].replace("-", "")
-        topic_label = _notion_text(props.get("Name", {}))
+        wl_id_num = props.get("WL_ID", {}).get("unique_id", {}).get("number")
+        if wl_id_num is None:
+            log.warning("Notion page %s missing WL_ID — skipped", page.get("id"))
+            continue
+        topic_key = f"WL-{int(wl_id_num)}"
+        topic_label = _notion_text(props.get("Topic", {}))
         weight = _notion_number(props.get("Weight", {})) or 1
         keywords = _notion_text(props.get("Keywords", {}))
         keywords_ja = _notion_text(props.get("KeywordsJa", {}))

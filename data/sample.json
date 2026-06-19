@@ -3,21 +3,21 @@
   "description": "Sample watchlist fixture for CI and offline testing. No real names or private IDs.",
   "topics": [
     {
-      "topic_key": "sample-001",
+      "topic_key": "WL-1",
       "topic_label": "Interest Rates",
       "weight": 5,
       "keywords": "interest rates;central bank;RBA;Fed;rate cut",
       "lang": ["en-AU"]
     },
     {
-      "topic_key": "sample-002",
+      "topic_key": "WL-2",
       "topic_label": "AI & Technology",
       "weight": 4,
       "keywords": "artificial intelligence;AI;machine learning;LLM",
       "lang": ["en-AU"]
     },
     {
-      "topic_key": "sample-003",
+      "topic_key": "WL-3",
       "topic_label": "Property Market",
       "weight": 3,
       "keywords": "property;housing market;real estate;house prices",
