@@ -158,22 +158,7 @@ def _notion_multiselect(prop: dict) -> list[str]:
 # Polymarket query — relevance-guarded via /public-search
 # ---------------------------------------------------------------------------
 
-def _relevance_tokens(topic: dict) -> set[str]:
-    """Extract lowercased word tokens (len >= 2) from topic keywords + label."""
-    tokens: set[str] = set()
-    for field in ("keywords", "topic_label"):
-        raw = topic.get(field, "")
-        for part in raw.replace(";", " ").split():
-            tok = part.strip().lower()
-            if len(tok) >= 2:
-                tokens.add(tok)
-    return tokens
-
-
-def _is_relevant(event_title: str, tokens: set[str]) -> bool:
-    """True if event_title (case-insensitive) contains at least one topic token."""
-    title_lower = event_title.lower()
-    return any(tok in title_lower for tok in tokens)
+from core.relevance import is_relevant as _is_relevant_v2
 
 
 def _query_topic(topic: dict, adapter: Any) -> list[dict]:
@@ -182,6 +167,9 @@ def _query_topic(topic: dict, adapter: Any) -> list[dict]:
     Tries each semicolon-delimited keyword in order; stops at the first keyword
     that yields at least one relevant event. NEVER falls back to top-by-volume.
     Returns [] if no relevant event is found for any keyword.
+
+    Relevance: acronym-match OR multi-word phrase-match OR >=2 generic tokens
+    (see core.relevance). Single common-word matches are rejected.
     """
     keywords_raw = topic.get("keywords", "")
     keywords = [k.strip() for k in keywords_raw.split(";") if k.strip()]
@@ -192,7 +180,6 @@ def _query_topic(topic: dict, adapter: Any) -> list[dict]:
         else:
             return []
 
-    tokens = _relevance_tokens(topic)
     best_event = None
 
     for keyword in keywords:
@@ -202,7 +189,7 @@ def _query_topic(topic: dict, adapter: Any) -> list[dict]:
             log.warning("Polymarket public_search failed for '%s': %s", keyword, exc)
             continue
 
-        relevant = [e for e in events if _is_relevant(getattr(e, "event_title", ""), tokens)]
+        relevant = [e for e in events if _is_relevant_v2(topic, getattr(e, "event_title", ""))]
         if not relevant:
             continue
 

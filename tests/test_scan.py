@@ -374,7 +374,7 @@ class TestE7DKContract:
     def test_hit_entries_expose_dk_fields(self):
         """Each market entry in hits must contain every field DK reads."""
         from core.scan import scan
-        event = _make_event("Will interest rates fall?", prob=0.55, prob_7d=0.50)
+        event = _make_event("RBA cuts interest rates by 25bp", prob=0.55, prob_7d=0.50)
         adapter = _mock_adapter([event])
         topics = [{"topic_key": "WL-1", "topic_label": "Rates", "weight": 5,
                    "keywords": "rates;RBA", "lang": ["en-AU"]}]
@@ -475,8 +475,9 @@ class TestE8RelevanceGuard:
         )
 
     def test_returned_title_contains_keyword_token(self):
-        """Every returned market title must share at least one keyword token with the topic."""
-        from core.scan import scan, _relevance_tokens, _is_relevant
+        """Every returned market title must pass the relevance guard for the topic."""
+        from core.scan import scan
+        from core.relevance import is_relevant
         rba_event = _make_event("RBA interest rates decision", prob=0.55, vol=100_000.0)
         topic = {
             "topic_key": "WL-1", "topic_label": "Interest Rates",
@@ -484,11 +485,10 @@ class TestE8RelevanceGuard:
         }
         adapter = _mock_adapter([rba_event])
         result = scan(watchlist=[topic], adapter=adapter)
-        tokens = _relevance_tokens(topic)
         for markets in result["hits"].values():
             for m in markets:
-                assert _is_relevant(m["title"], tokens), (
-                    f"Market title '{m['title']}' does not share any token with topic keywords"
+                assert is_relevant(topic, m["title"]), (
+                    f"Market title '{m['title']}' does not pass relevance guard for topic"
                 )
 
     def test_no_relevant_match_returns_empty(self):
