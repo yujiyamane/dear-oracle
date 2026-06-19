@@ -47,6 +47,20 @@ def _drive_path() -> Path | None:
     return None
 
 
+def _do_hits_path() -> Path | None:
+    """Return do_hits.json output path from env var or config/delivery.json."""
+    env = os.environ.get("DEAR_ORACLE_DO_HITS_PATH")
+    if env:
+        return Path(env)
+    cfg_file = PROJECT_ROOT / "config" / "delivery.json"
+    if cfg_file.exists():
+        cfg = json.loads(cfg_file.read_text(encoding="utf-8"))
+        raw = cfg.get("do_hits_path")
+        if raw:
+            return Path(raw)
+    return None
+
+
 def _open_db() -> sqlite3.Connection:
     db_path = PROJECT_ROOT / "data" / "oracle.db"
     db = sqlite3.connect(db_path)
@@ -93,11 +107,18 @@ def main() -> int:
     from core.collector import collect
     from core.onboard import write_interests_atomic
     from core.pipeline import run_letter
+    from core.scan import scan, load_watchlist
 
     db = _open_db()
     profile, interests_path = _load_profile()
     adapter = PolymarketAdapter()
     exports_dir = PROJECT_ROOT / "data"
+
+    # DK Watchlist scan → do_hits.json
+    log.info("scan start")
+    do_hits_out = _do_hits_path()
+    scan(watchlist=load_watchlist(), adapter=adapter, out_path=do_hits_out)
+    log.info("scan done (output=%s)", do_hits_out or "none")
 
     # Layer 1: collect
     log.info("collect start")

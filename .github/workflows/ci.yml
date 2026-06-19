@@ -1,0 +1,77 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    name: Tests (Python 3.11)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install pytest
+
+      - name: Run tests
+        run: python -m pytest tests/ -q --tb=short
+
+  digest:
+    name: Render sample digest
+    runs-on: ubuntu-latest
+    needs: test
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install pytest
+
+      - name: Render digest from sample.json
+        run: python - <<'EOF'
+import sys, json
+from pathlib import Path
+sys.path.insert(0, str(Path(".").resolve()))
+from core.scan import scan, load_watchlist
+from unittest.mock import MagicMock
+from core.models import Event, Market
+
+def make_event(title, prob=0.6):
+    m = Market(market_id=f"m-{title[:4]}", outcome_label="Yes",
+               url="https://polymarket.com/event/sample",
+               prob_now=prob, prob_24h_ago=None, prob_7d_ago=prob-0.05,
+               delta_24h_pp=None, delta_7d_pp=round((prob-(prob-0.05))*100,2))
+    return Event(event_id=f"e-{title[:4]}", event_title=title,
+                 markets=[m], volume_usd=50000.0, end_date="2027-12-31", tags=[])
+
+adapter = MagicMock()
+adapter.search.return_value = [make_event("Sample prediction market")]
+topics = load_watchlist(notion_token=None)
+do_hits = scan(watchlist=topics, adapter=adapter)
+
+from core.digest import render_digest
+html = render_digest(do_hits)
+out = Path("docs/digest.sample.html")
+out.parent.mkdir(exist_ok=True)
+out.write_text(html, encoding="utf-8")
+print(f"Digest written ({len(html)} chars)")
+assert len(html) > 100
+EOF
+
+      - name: Upload digest artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: digest-sample
+          path: docs/digest.sample.html
