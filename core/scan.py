@@ -52,6 +52,19 @@ def load_watchlist(notion_token: str | None = None) -> list[dict]:
     return _load_sample()
 
 
+def _try_load_notion(token: str) -> tuple[list[dict], bool]:
+    """Try Notion; return (topics, notion_failed). Does NOT fall back to sample."""
+    try:
+        topics = _fetch_notion_watchlist(token)
+        if topics:
+            return topics, False
+        log.warning("Notion watchlist returned 0 topics")
+        return [], False
+    except Exception as exc:
+        log.warning("Notion watchlist fetch failed (%s) — scan will not write", exc)
+        return [], True
+
+
 def _load_sample() -> list[dict]:
     data = json.loads(_SAMPLE_JSON.read_text(encoding="utf-8"))
     return data.get("topics", [])
@@ -119,46 +132,77 @@ def _notion_multiselect(prop: dict) -> list[str]:
 
 
 # ---------------------------------------------------------------------------
-# Polymarket query
+# Polymarket query — relevance-guarded via /public-search
 # ---------------------------------------------------------------------------
 
-def _build_query(topic: dict) -> str:
-    keywords = topic.get("keywords", "")
-    parts = [k.strip() for k in keywords.split(";") if k.strip()]
-    return " OR ".join(parts[:3]) if parts else topic.get("topic_label", "")
+def _relevance_tokens(topic: dict) -> set[str]:
+    """Extract lowercased word tokens (len >= 2) from topic keywords + label."""
+    tokens: set[str] = set()
+    for field in ("keywords", "topic_label"):
+        raw = topic.get(field, "")
+        for part in raw.replace(";", " ").split():
+            tok = part.strip().lower()
+            if len(tok) >= 2:
+                tokens.add(tok)
+    return tokens
+
+
+def _is_relevant(event_title: str, tokens: set[str]) -> bool:
+    """True if event_title (case-insensitive) contains at least one topic token."""
+    title_lower = event_title.lower()
+    return any(tok in title_lower for tok in tokens)
 
 
 def _query_topic(topic: dict, adapter: Any) -> list[dict]:
-    """Return list of market dicts for the given topic, or [] if none found."""
-    query = _build_query(topic)
-    if not query:
-        return []
+    """Search Polymarket for a topic via /public-search + relevance guard.
 
-    try:
-        events = adapter.search(query, limit=5)
-    except Exception as exc:
-        log.warning("Polymarket search failed for topic %s: %s", topic.get("topic_key"), exc)
+    Tries each semicolon-delimited keyword in order; stops at the first keyword
+    that yields at least one relevant event. NEVER falls back to top-by-volume.
+    Returns [] if no relevant event is found for any keyword.
+    """
+    keywords_raw = topic.get("keywords", "")
+    keywords = [k.strip() for k in keywords_raw.split(";") if k.strip()]
+    if not keywords:
+        label = topic.get("topic_label", "")
+        if label:
+            keywords = [label]
+        else:
+            return []
+
+    tokens = _relevance_tokens(topic)
+    best_event = None
+
+    for keyword in keywords:
+        try:
+            events = adapter.public_search(keyword, limit=10)
+        except Exception as exc:
+            log.warning("Polymarket public_search failed for '%s': %s", keyword, exc)
+            continue
+
+        relevant = [e for e in events if _is_relevant(getattr(e, "event_title", ""), tokens)]
+        if not relevant:
+            continue
+
+        best_event = max(relevant, key=lambda e: getattr(e, "volume_usd", None) or 0.0)
+        break
+
+    if best_event is None:
         return []
 
     markets = []
-    for event in events:
-        for m in getattr(event, "markets", []):
-            prob_now = getattr(m, "prob_now", None)
-            prob_7d = getattr(m, "prob_7d_ago", None)
-            if prob_now is None:
-                continue
-
-            delta_7d = None
-            if prob_7d is not None:
-                delta_7d = round(prob_now - prob_7d, 4)
-
-            markets.append({
-                "title": getattr(event, "event_title", ""),
-                "url": getattr(m, "url", ""),
-                "prob_now": round(prob_now, 4),
-                "delta_7d": delta_7d,
-                "volume_usd": getattr(event, "volume_usd", None),
-            })
+    for m in getattr(best_event, "markets", []):
+        prob_now = getattr(m, "prob_now", None)
+        if prob_now is None:
+            continue
+        prob_7d = getattr(m, "prob_7d_ago", None)
+        delta_7d = round(prob_now - prob_7d, 4) if prob_7d is not None else None
+        markets.append({
+            "title": getattr(best_event, "event_title", ""),
+            "url": getattr(m, "url", ""),
+            "prob_now": round(prob_now, 4),
+            "delta_7d": delta_7d,
+            "volume_usd": getattr(best_event, "volume_usd", None),
+        })
 
     return markets[:3]
 
@@ -176,13 +220,30 @@ def scan(
     """Scan watchlist topics against Polymarket; return do_hits dict.
 
     Args:
-        watchlist: pre-loaded topic list; if None, calls load_watchlist().
+        watchlist: pre-loaded topic list; if None, loads from Notion or sample.json.
         adapter: Polymarket adapter; if None, instantiates PolymarketAdapter.
         out_path: if set, writes do_hits.json atomically to this path.
-        notion_token: passed to load_watchlist if watchlist is None.
+        notion_token: when set, Notion is authoritative; on failure returns
+                      meta.status='error' + empty hits and skips the write.
     """
     if watchlist is None:
-        watchlist = load_watchlist(notion_token)
+        token = notion_token or os.environ.get("NOTION_TOKEN")
+        if token:
+            watchlist, notion_failed = _try_load_notion(token)
+            if notion_failed:
+                return {
+                    "meta": {
+                        "generated_at": datetime.now(timezone.utc).isoformat(),
+                        "status": "error",
+                        "topics_queried": 0,
+                        "topics_with_hits": 0,
+                    },
+                    "hits": {},
+                }
+            if not watchlist:
+                watchlist = _load_sample()
+        else:
+            watchlist = _load_sample()
 
     if adapter is None:
         from core.adapter_polymarket import PolymarketAdapter

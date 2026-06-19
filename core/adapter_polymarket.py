@@ -159,6 +159,93 @@ def _events_from_response(data: Any) -> list[Event]:
 
 
 # ---------------------------------------------------------------------------
+# /public-search parsers (different JSON shape; includes oneWeekPriceChange)
+# ---------------------------------------------------------------------------
+
+def _parse_market_public_search(raw: dict, event_url: str = "") -> Market | None:
+    """Parse one market from a /public-search event. Extracts prob_7d_ago from oneWeekPriceChange."""
+    try:
+        market_id = raw.get("conditionId") or raw.get("id", "")
+        if not market_id:
+            return None
+
+        question = raw.get("question", "").strip()
+        url = raw.get("url", "") or event_url
+        outcome_label = raw.get("groupItemTitle") or question
+
+        outcome_prices_raw = raw.get("outcomePrices", "[]")
+        if isinstance(outcome_prices_raw, str):
+            outcome_prices = json.loads(outcome_prices_raw)
+        else:
+            outcome_prices = outcome_prices_raw or []
+
+        prob_now = _parse_price(outcome_prices[0]) if outcome_prices else 0.0
+
+        prob_7d_ago = None
+        week_change_raw = raw.get("oneWeekPriceChange")
+        if week_change_raw is not None:
+            try:
+                change = float(week_change_raw)
+                prob_7d_ago = max(0.0, min(1.0, round(prob_now - change, 6)))
+            except (TypeError, ValueError):
+                pass
+
+        return Market(
+            market_id=str(market_id),
+            outcome_label=outcome_label,
+            url=url,
+            prob_now=prob_now,
+            prob_7d_ago=prob_7d_ago,
+        )
+    except Exception as exc:
+        log.debug("Failed to parse public-search market: %s", exc)
+        return None
+
+
+def _parse_event_public_search(raw: dict) -> Event | None:
+    """Parse one event from a /public-search response."""
+    try:
+        event_id = str(raw.get("id", ""))
+        if not event_id:
+            return None
+
+        title = raw.get("title", "").strip()
+        slug = raw.get("slug", "")
+        event_url = f"https://polymarket.com/event/{slug}" if slug else ""
+
+        volume_raw = raw.get("volume", 0)
+        volume_usd = float(volume_raw) if volume_raw else None
+
+        end_date_raw = raw.get("endDate", "")
+        end_date = end_date_raw[:10] if end_date_raw else None
+
+        tags_raw = raw.get("tags", [])
+        tags = [
+            Tag(slug=t.get("slug", ""), tag_id=str(t.get("id", "")))
+            for t in (tags_raw or [])
+            if t.get("id")
+        ]
+
+        markets_raw = raw.get("markets", [])
+        markets = [
+            m for m in (_parse_market_public_search(mr, event_url) for mr in (markets_raw or []))
+            if m
+        ]
+
+        return Event(
+            event_id=event_id,
+            event_title=title,
+            markets=markets,
+            volume_usd=volume_usd,
+            end_date=end_date,
+            tags=tags,
+        )
+    except Exception as exc:
+        log.debug("Failed to parse public-search event: %s", exc)
+        return None
+
+
+# ---------------------------------------------------------------------------
 # PolymarketAdapter
 # ---------------------------------------------------------------------------
 
@@ -200,6 +287,19 @@ class PolymarketAdapter:
             for t in data
             if t.get("id")
         ]
+
+    def public_search(self, query: str, limit: int = 10) -> list[Event]:
+        """Search via /public-search endpoint. Returns parsed events; never raises."""
+        data = _http_get(
+            f"{GAMMA_BASE}/public-search",
+            {"q": query, "limit": limit},
+        )
+        if not isinstance(data, dict):
+            return []
+        events_raw = data.get("events", [])
+        if not isinstance(events_raw, list):
+            return []
+        return [e for e in (_parse_event_public_search(r) for r in events_raw) if e]
 
     # CLOB surface — Sprint 3/5 — stubs satisfy the Protocol
     def prices_history(self, market_id: str, since: str) -> list[PricePoint]:

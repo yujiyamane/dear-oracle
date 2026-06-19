@@ -53,7 +53,7 @@ def _make_event(title: str, prob: float = 0.6, prob_7d: float = 0.65, vol: float
 
 def _mock_adapter(events: list) -> MagicMock:
     adapter = MagicMock()
-    adapter.search.return_value = events
+    adapter.public_search.return_value = events
     return adapter
 
 
@@ -111,21 +111,21 @@ class TestE2HitsSchema:
         result = scan(watchlist=self._sample_topics(), adapter=adapter)
         assert "WL-1" in result["hits"], "hits must be keyed by topic_key"
 
-    def test_topic_key_matches_wl_pattern(self):
-        """topic_key from sample.json must match ^WL-\\d+$ (never a raw page ID)."""
+    def test_topic_key_matches_sample_or_wl_pattern(self):
+        """topic_key from sample.json must match ^(WL|SAMPLE)-\\d+$ (never a raw page ID)."""
         from core.scan import scan, load_watchlist
         topics = load_watchlist(notion_token=None)
-        wl_pattern = re.compile(r"^WL-\d+$")
+        key_pattern = re.compile(r"^(WL|SAMPLE)-\d+$")
         for t in topics:
-            assert wl_pattern.match(t["topic_key"]), (
-                f"topic_key '{t['topic_key']}' must match ^WL-\\d+$"
+            assert key_pattern.match(t["topic_key"]), (
+                f"topic_key '{t['topic_key']}' must match ^(WL|SAMPLE)-\\d+$"
             )
-        events = [_make_event("Market for test")]
-        adapter = _mock_adapter(events)
+        event = _make_event("RBA interest rates decision")
+        adapter = _mock_adapter([event])
         result = scan(watchlist=topics, adapter=adapter)
         for key in result["hits"]:
-            assert wl_pattern.match(key), (
-                f"hit key '{key}' must match ^WL-\\d+$"
+            assert key_pattern.match(key), (
+                f"hit key '{key}' must match ^(WL|SAMPLE)-\\d+$"
             )
 
     def test_prob_now_in_range(self):
@@ -163,16 +163,16 @@ class TestE2HitsSchema:
         """meta.topics_queried and meta.topics_with_hits match actual data."""
         from core.scan import scan
         topics = [
-            {"topic_key": "t1", "topic_label": "A", "weight": 4, "keywords": "AI", "lang": ["en-AU"]},
-            {"topic_key": "t2", "topic_label": "B", "weight": 3, "keywords": "property", "lang": ["en-AU"]},
+            {"topic_key": "t1", "topic_label": "AI", "weight": 4, "keywords": "AI", "lang": ["en-AU"]},
+            {"topic_key": "t2", "topic_label": "Property", "weight": 3, "keywords": "property", "lang": ["en-AU"]},
         ]
         event = _make_event("Will AI take over?")
         def fake_search(query, limit=10):
-            if "AI" in query:
+            if "AI" in query or "ai" in query.lower():
                 return [event]
             return []
         adapter = MagicMock()
-        adapter.search.side_effect = fake_search
+        adapter.public_search.side_effect = fake_search
 
         result = scan(watchlist=topics, adapter=adapter)
         assert result["meta"]["topics_queried"] == 2
@@ -336,9 +336,17 @@ class TestE5Performance:
 @pytest.mark.skipif(not os.environ.get("NOTION_TOKEN"), reason="NOTION_TOKEN not set")
 class TestE6NotionIntegration:
     def test_live_watchlist_returns_wl_keys(self):
-        """Live Notion returns topics keyed WL-N with non-empty titles."""
-        from core.scan import load_watchlist
-        topics = load_watchlist()
+        """Live Notion returns topics keyed WL-N with non-empty titles.
+
+        Skipped automatically if the token doesn't have access to the DK Watchlist DB.
+        """
+        from core.scan import _fetch_notion_watchlist
+        token = os.environ.get("NOTION_TOKEN", "")
+        try:
+            topics = _fetch_notion_watchlist(token)
+        except Exception as exc:
+            pytest.skip(f"Notion access failed (wrong integration or 401): {exc}")
+
         assert len(topics) >= 1, "Notion watchlist must return at least one active topic"
         wl_pattern = re.compile(r"^WL-\d+$")
         for t in topics:
@@ -423,13 +431,279 @@ class TestE7DKContract:
 
 
 # ---------------------------------------------------------------------------
+# E8 — Relevance guard (DO-5.1)
+# ---------------------------------------------------------------------------
+
+class TestE8RelevanceGuard:
+    """Relevance guard: _query_topic must never return off-topic results."""
+
+    _FOOTBALL_EVENT = None
+
+    @classmethod
+    def _football_event(cls):
+        if cls._FOOTBALL_EVENT is None:
+            cls._FOOTBALL_EVENT = _make_event("World Cup Winner", prob=0.12, vol=2_000_000.0)
+        return cls._FOOTBALL_EVENT
+
+    def test_rba_topic_does_not_return_football_market(self):
+        """RBA/interest-rate topic must never get a World Cup market (relevance guard)."""
+        from core.scan import _query_topic
+        adapter = MagicMock()
+        adapter.public_search.return_value = [self._football_event()]
+        topic = {
+            "topic_key": "WL-1", "topic_label": "Interest Rates",
+            "keywords": "RBA;interest rates;mortgage", "lang": ["en-AU"],
+        }
+        result = _query_topic(topic, adapter)
+        assert result == [], (
+            "Relevance guard must reject 'World Cup Winner' for an RBA/interest topic"
+        )
+
+    def test_football_topic_returns_world_cup_market(self):
+        """Football topic DOES return World Cup market when title matches keywords."""
+        from core.scan import _query_topic
+        adapter = MagicMock()
+        adapter.public_search.return_value = [self._football_event()]
+        topic = {
+            "topic_key": "WL-99", "topic_label": "Football",
+            "keywords": "football;World Cup;soccer", "lang": ["en-AU"],
+        }
+        result = _query_topic(topic, adapter)
+        assert len(result) > 0, "Football topic must return World Cup market"
+        assert any("World Cup" in m["title"] for m in result), (
+            "Returned title must contain 'World Cup'"
+        )
+
+    def test_returned_title_contains_keyword_token(self):
+        """Every returned market title must share at least one keyword token with the topic."""
+        from core.scan import scan, _relevance_tokens, _is_relevant
+        rba_event = _make_event("RBA interest rates decision", prob=0.55, vol=100_000.0)
+        topic = {
+            "topic_key": "WL-1", "topic_label": "Interest Rates",
+            "keywords": "RBA;interest rates;mortgage", "lang": ["en-AU"],
+        }
+        adapter = _mock_adapter([rba_event])
+        result = scan(watchlist=[topic], adapter=adapter)
+        tokens = _relevance_tokens(topic)
+        for markets in result["hits"].values():
+            for m in markets:
+                assert _is_relevant(m["title"], tokens), (
+                    f"Market title '{m['title']}' does not share any token with topic keywords"
+                )
+
+    def test_no_relevant_match_returns_empty(self):
+        """If no event title matches topic keywords, hits is empty (no fallback)."""
+        from core.scan import scan
+        unrelated_events = [
+            _make_event("World Cup Winner", prob=0.12, vol=2_000_000.0),
+            _make_event("US Election 2028", prob=0.55, vol=500_000.0),
+        ]
+        topic = {
+            "topic_key": "WL-1", "topic_label": "Interest Rates",
+            "keywords": "RBA;interest rates;mortgage", "lang": ["en-AU"],
+        }
+        adapter = _mock_adapter(unrelated_events)
+        result = scan(watchlist=[topic], adapter=adapter)
+        assert "WL-1" not in result["hits"], (
+            "No relevant match must produce empty hits — never fall back to top-by-volume"
+        )
+
+    def test_multi_keyword_fallback_finds_later_keyword(self):
+        """If first keyword returns no relevant events, tries the next keyword."""
+        from core.scan import _query_topic
+        rba_event = _make_event("RBA cuts rates 2026", prob=0.55)
+        call_count = [0]
+        def fake_search(query, limit=10):
+            call_count[0] += 1
+            if "interest rates" in query.lower():
+                return []  # first keyword: no results
+            if "rba" in query.lower():
+                return [rba_event]  # second keyword: hit
+            return []
+        adapter = MagicMock()
+        adapter.public_search.side_effect = fake_search
+        topic = {
+            "topic_key": "WL-1", "topic_label": "Interest Rates",
+            "keywords": "interest rates;RBA", "lang": ["en-AU"],
+        }
+        result = _query_topic(topic, adapter)
+        assert len(result) > 0, "Should find result on second keyword 'RBA'"
+        assert call_count[0] >= 2, "Should have tried at least 2 keywords"
+
+
+# ---------------------------------------------------------------------------
+# E9 — Fallback safety (DO-5.2)
+# ---------------------------------------------------------------------------
+
+class TestE9FallbackSafety:
+    """Notion failure must not write sample-derived data to the prod path."""
+
+    def test_notion_failure_returns_error_status(self, tmp_path):
+        """On Notion failure, scan() returns meta.status='error' and empty hits."""
+        from unittest.mock import patch
+        from core.scan import scan
+        with patch("core.scan._fetch_notion_watchlist", side_effect=Exception("timeout")):
+            result = scan(notion_token="fake-token")
+        assert result["meta"]["status"] == "error"
+        assert result["hits"] == {}
+
+    def test_notion_failure_skips_write(self, tmp_path):
+        """On Notion failure, scan() does NOT write to out_path."""
+        from unittest.mock import patch
+        from core.scan import scan
+        out = tmp_path / "do_hits.json"
+        with patch("core.scan._fetch_notion_watchlist", side_effect=Exception("timeout")):
+            scan(notion_token="fake-token", out_path=out)
+        assert not out.exists(), (
+            "scan must NOT write do_hits.json when Notion fails — "
+            "never write sample-derived data to the prod path"
+        )
+
+    def test_sample_keys_are_not_wl_n(self):
+        """Sample.json topic keys must be SAMPLE-N, not WL-N, to avoid colliding with real data."""
+        from core.scan import load_watchlist
+        topics = load_watchlist(notion_token=None)
+        for t in topics:
+            key = t["topic_key"]
+            assert not key.startswith("WL-"), (
+                f"Sample key '{key}' starts with 'WL-' — collides with live watchlist keys"
+            )
+            assert key.startswith("SAMPLE-"), (
+                f"Sample key '{key}' must start with 'SAMPLE-'"
+            )
+
+    def test_scan_without_token_still_writes(self, tmp_path):
+        """scan() called without a notion_token (no Notion attempted) still writes."""
+        from core.scan import scan
+        topic = {
+            "topic_key": "SAMPLE-1", "topic_label": "Interest Rates",
+            "keywords": "RBA;interest rates", "lang": ["en-AU"],
+        }
+        event = _make_event("RBA rates decision", prob=0.6)
+        adapter = _mock_adapter([event])
+        out = tmp_path / "do_hits.json"
+        scan(watchlist=[topic], adapter=adapter, out_path=out)
+        assert out.exists(), "scan must write when no Notion failure"
+
+
+# ---------------------------------------------------------------------------
+# E10 — delta_7d from public_search (DO-5.3)
+# ---------------------------------------------------------------------------
+
+class TestE10Delta7d:
+    """delta_7d populated from prob_7d_ago; decimal not pp."""
+
+    def test_delta_7d_populated_when_prob_7d_ago_set(self):
+        """delta_7d = prob_now - prob_7d_ago (decimal) when prob_7d_ago is available."""
+        from core.scan import scan
+        event = _make_event("RBA rate cut 2026", prob=0.55, prob_7d=0.50)
+        adapter = _mock_adapter([event])
+        topic = {"topic_key": "WL-1", "topic_label": "RBA",
+                 "keywords": "RBA;rate cut", "lang": ["en-AU"]}
+        result = scan(watchlist=[topic], adapter=adapter)
+        assert "WL-1" in result["hits"], "WL-1 must have hits"
+        for m in result["hits"]["WL-1"]:
+            assert m["delta_7d"] is not None, "delta_7d must be populated"
+            expected = round(0.55 - 0.50, 4)
+            assert abs(m["delta_7d"] - expected) < 0.001, (
+                f"delta_7d {m['delta_7d']} should be ~{expected}"
+            )
+
+    def test_delta_7d_is_decimal_range(self):
+        """delta_7d must be in [-1, 1] (decimal), not percentage points."""
+        from core.scan import scan
+        event = _make_event("RBA decision", prob=0.30, prob_7d=0.40)
+        adapter = _mock_adapter([event])
+        topic = {"topic_key": "WL-1", "topic_label": "RBA",
+                 "keywords": "RBA", "lang": ["en-AU"]}
+        result = scan(watchlist=[topic], adapter=adapter)
+        for markets in result["hits"].values():
+            for m in markets:
+                d = m["delta_7d"]
+                if d is not None:
+                    assert -1.0 <= d <= 1.0, f"delta_7d {d} out of [-1,1] decimal range"
+
+    def test_delta_7d_null_when_no_history(self):
+        """delta_7d is None when prob_7d_ago is unavailable."""
+        from core.models import Event, Market
+        from core.scan import scan
+        m_no_hist = Market(
+            market_id="mkt-test",
+            outcome_label="Yes",
+            url="https://polymarket.com/event/test",
+            prob_now=0.55,
+            prob_7d_ago=None,
+        )
+        event = Event(
+            event_id="evt-test",
+            event_title="RBA rate decision no history",
+            markets=[m_no_hist],
+            volume_usd=10000.0,
+            end_date="2027-01-01",
+            tags=[],
+        )
+        adapter = _mock_adapter([event])
+        topic = {"topic_key": "WL-1", "topic_label": "RBA",
+                 "keywords": "RBA", "lang": ["en-AU"]}
+        result = scan(watchlist=[topic], adapter=adapter)
+        for markets in result["hits"].values():
+            for m in markets:
+                assert m["delta_7d"] is None, "delta_7d must be None when no price history"
+
+    def test_adapter_public_search_extracts_prob_7d_ago(self):
+        """PolymarketAdapter.public_search() extracts prob_7d_ago from oneWeekPriceChange."""
+        from unittest.mock import patch
+        from core.adapter_polymarket import PolymarketAdapter
+        fake_response = {
+            "events": [{
+                "id": "12345",
+                "title": "RBA cuts rates",
+                "slug": "rba-cuts-rates",
+                "volume": "50000",
+                "endDate": "2026-12-31T00:00:00Z",
+                "tags": [],
+                "markets": [{
+                    "conditionId": "0xabc123",
+                    "question": "Will RBA cut rates?",
+                    "outcomePrices": '["0.55", "0.45"]',
+                    "oneWeekPriceChange": "0.05",
+                    "url": "",
+                    "groupItemTitle": "",
+                }],
+            }],
+            "pagination": {"next": None},
+        }
+        with patch("core.adapter_polymarket._http_get", return_value=fake_response):
+            adapter = PolymarketAdapter()
+            events = adapter.public_search("RBA interest rates")
+        assert len(events) == 1
+        event = events[0]
+        assert event.event_title == "RBA cuts rates"
+        assert len(event.markets) == 1
+        m = event.markets[0]
+        assert m.prob_now == 0.55
+        assert m.prob_7d_ago is not None
+        assert abs(m.prob_7d_ago - 0.50) < 0.001, (
+            f"prob_7d_ago should be ~0.50 (0.55 - 0.05), got {m.prob_7d_ago}"
+        )
+
+
+# ---------------------------------------------------------------------------
 # Shared helpers
 # ---------------------------------------------------------------------------
 
 def _load_sample_do_hits() -> dict:
-    """Build a do_hits dict from sample.json for digest tests."""
+    """Build a do_hits dict from sample.json for digest tests.
+
+    Uses topic-relevant event titles so the relevance guard passes for each sample topic.
+    All 3 events are returned for every keyword; the guard selects the right one per topic.
+    """
     from core.scan import scan, load_watchlist
     topics = load_watchlist(notion_token=None)
-    events = [_make_event(f"Sample market topic-{i}", prob=0.55 + i * 0.05) for i in range(3)]
-    adapter = _mock_adapter(events)
+    relevant_events = [
+        _make_event("RBA cuts interest rates August 2026", prob=0.55, prob_7d=0.50),
+        _make_event("AI machine learning regulation 2027", prob=0.60, prob_7d=0.58),
+        _make_event("Australian property housing market prices", prob=0.45, prob_7d=0.48),
+    ]
+    adapter = _mock_adapter(relevant_events)
     return scan(watchlist=topics, adapter=adapter)

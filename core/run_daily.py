@@ -107,7 +107,7 @@ def main() -> int:
     from core.collector import collect
     from core.onboard import write_interests_atomic
     from core.pipeline import run_letter
-    from core.scan import scan, load_watchlist
+    from core.scan import scan
 
     db = _open_db()
     profile, interests_path = _load_profile()
@@ -115,9 +115,10 @@ def main() -> int:
     exports_dir = PROJECT_ROOT / "data"
 
     # DK Watchlist scan → do_hits.json
+    # Pass notion_token so Notion failure returns error status and skips the write
     log.info("scan start")
     do_hits_out = _do_hits_path()
-    scan(watchlist=load_watchlist(), adapter=adapter, out_path=do_hits_out)
+    scan(adapter=adapter, out_path=do_hits_out, notion_token=os.environ.get("NOTION_TOKEN"))
     log.info("scan done (output=%s)", do_hits_out or "none")
 
     # Layer 1: collect
