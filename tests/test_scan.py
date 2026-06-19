@@ -21,6 +21,14 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+# Load config/.env BEFORE any @pytest.mark.skipif decorators are evaluated.
+# skipif conditions are evaluated at collection-time (module import), but
+# core.scan is only imported inside test methods — so _load_env_file() would
+# not have run yet, causing NOTION_TOKEN to appear absent even when config/.env
+# has a valid token.
+from core.scan import _load_env_file as _env_loader
+_env_loader()
+
 SAMPLE_JSON = Path(__file__).parent.parent / "data" / "sample.json"
 BRAND_COLOURS = ["#264653", "#2a9d8f", "#e9c46a", "#f4a261", "#e76f51"]
 
@@ -333,19 +341,18 @@ class TestE5Performance:
 # E6 — NOTION_TOKEN-gated integration test (skipped when token absent)
 # ---------------------------------------------------------------------------
 
-@pytest.mark.skipif(not os.environ.get("NOTION_TOKEN"), reason="NOTION_TOKEN not set")
+@pytest.mark.skipif(not os.environ.get("NOTION_TOKEN"), reason="NOTION_TOKEN not set — add to config/.env")
 class TestE6NotionIntegration:
     def test_live_watchlist_returns_wl_keys(self):
-        """Live Notion returns topics keyed WL-N with non-empty titles.
+        """Live Notion canary: token present → must hit real Watchlist DB.
 
-        Skipped automatically if the token doesn't have access to the DK Watchlist DB.
+        SKIP: token absent (unconfigured / offline — legitimate).
+        FAIL: token present but Notion returns 401/empty — canary should sound.
+        Do NOT add pytest.skip() inside this test body.
         """
         from core.scan import _fetch_notion_watchlist
         token = os.environ.get("NOTION_TOKEN", "")
-        try:
-            topics = _fetch_notion_watchlist(token)
-        except Exception as exc:
-            pytest.skip(f"Notion access failed (wrong integration or 401): {exc}")
+        topics = _fetch_notion_watchlist(token)
 
         assert len(topics) >= 1, "Notion watchlist must return at least one active topic"
         wl_pattern = re.compile(r"^WL-\d+$")
@@ -591,6 +598,27 @@ class TestE9FallbackSafety:
         out = tmp_path / "do_hits.json"
         scan(watchlist=[topic], adapter=adapter, out_path=out)
         assert out.exists(), "scan must write when no Notion failure"
+
+    def test_present_but_401_token_fails_not_skips(self, tmp_path):
+        """A present-but-401 token must cause scan to return error status + skip write.
+
+        This is the 'canary should sound' path: token is set but Notion rejects it.
+        scan must NOT silently fall back to sample.json or write WL-N keys.
+        """
+        import urllib.error
+        from core.scan import scan
+        err_401 = urllib.error.HTTPError(
+            url="https://api.notion.com/v1/databases/x/query",
+            code=401, msg="Unauthorized", hdrs=None, fp=None,
+        )
+        out = tmp_path / "do_hits.json"
+        with patch("core.scan._fetch_notion_watchlist", side_effect=err_401):
+            result = scan(notion_token="present-but-bad", out_path=out)
+        assert result["meta"]["status"] == "error", (
+            "401 from Notion must return meta.status='error', not fall back to sample"
+        )
+        assert result["hits"] == {}, "401 must produce empty hits"
+        assert not out.exists(), "401 must NOT write do_hits.json"
 
 
 # ---------------------------------------------------------------------------
