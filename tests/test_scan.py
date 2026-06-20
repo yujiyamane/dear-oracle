@@ -5,10 +5,10 @@ E2: per active topic, queries Polymarket; produces hits keyed by topic_key (WL_I
 E3: do_hits.json validates against schema; meta.status in {ok,partial}; written ATOMICALLY (tmp + os.replace).
 E4: portfolio digest renders from sample.json -> brand-styled HTML with >=1 market; contains NO real names / private Notion IDs.
 E5: full run < 120s on sample.json.
-E6: NOTION_TOKEN-gated integration test — live Notion returns WL-N keys + non-empty titles.
+E6: opt-in live canary (RUN_LIVE=1) — live Notion returns WL-N keys + non-empty titles.
 E7: DK contract — every hit entry exposes exactly the fields DK_parseDoHitsData_ reads.
 
-Zero live API calls (except E6 which requires NOTION_TOKEN env var).
+Zero live API calls (except E6, which requires RUN_LIVE=1 env flag to run).
 """
 from __future__ import annotations
 
@@ -338,20 +338,22 @@ class TestE5Performance:
 
 
 # ---------------------------------------------------------------------------
-# E6 — NOTION_TOKEN-gated integration test (skipped when token absent)
+# E6 — opt-in live canary (skipped unless RUN_LIVE=1)
 # ---------------------------------------------------------------------------
 
-@pytest.mark.skipif(not os.environ.get("NOTION_TOKEN"), reason="NOTION_TOKEN not set — add to config/.env")
+@pytest.mark.skipif(not os.environ.get("RUN_LIVE"), reason="live Notion canary; run with RUN_LIVE=1")
 class TestE6NotionIntegration:
     def test_live_watchlist_returns_wl_keys(self):
-        """Live Notion canary: token present → must hit real Watchlist DB.
+        """Live Notion canary: RUN_LIVE set → must hit real Watchlist DB.
 
-        SKIP: token absent (unconfigured / offline — legitimate).
-        FAIL: token present but Notion returns 401/empty — canary should sound.
+        SKIP: RUN_LIVE unset (default / CI / offline — hermetic).
+        FAIL: RUN_LIVE set but token absent or Notion returns 401/empty.
         Do NOT add pytest.skip() inside this test body.
         """
         from core.scan import _fetch_notion_watchlist
         token = os.environ.get("NOTION_TOKEN", "")
+        if not token:
+            pytest.fail("RUN_LIVE set but NOTION_TOKEN absent — add token to config/.env")
         topics = _fetch_notion_watchlist(token)
 
         assert len(topics) >= 1, "Notion watchlist must return at least one active topic"
