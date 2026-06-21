@@ -45,7 +45,43 @@ The `scripts/` directory contains ready-made wrappers:
 - `scripts/run_daily.bat` — runs `python core/run_daily.py` from the repo root
 - `scripts/run_daily_hidden.vbs` — launches the `.bat` without a console window
 
-Create a Basic Task in Windows Task Scheduler pointing to `run_daily_hidden.vbs`, trigger daily at 05:00. The pipeline logs to `data/logs/dear-oracle.log`.
+**Task name:** `DearOracle-Daily`  
+**Trigger:** daily at 04:30 local time (AEST), `StartWhenAvailable`, `WakeToRun`  
+**Action:** `wscript.exe "C:\Users\Admin\Documents\Life\repos\dear-oracle\scripts\run_daily_hidden.vbs"`  
+**Log:** `data/logs/dear-oracle.log`
+
+The scan step (DK Watchlist → Polymarket → `do_hits.json`) runs first inside `run_daily.py`, so `do_hits.json` lands on Drive before DK's GAS trigger fires at ~05:13.
+
+To register with the recommended settings (no battery restrictions, StartWhenAvailable, WakeToRun):
+
+```powershell
+$xml = @'
+<?xml version="1.0" encoding="UTF-16"?>
+<Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
+  <Triggers>
+    <CalendarTrigger>
+      <StartBoundary>2026-06-23T04:30:00</StartBoundary>
+      <ScheduleByDay><DaysInterval>1</DaysInterval></ScheduleByDay>
+    </CalendarTrigger>
+  </Triggers>
+  <Settings>
+    <DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>
+    <StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>
+    <StartWhenAvailable>true</StartWhenAvailable>
+    <WakeToRun>true</WakeToRun>
+    <ExecutionTimeLimit>PT30M</ExecutionTimeLimit>
+    <RunLevel>LeastPrivilege</RunLevel>
+  </Settings>
+  <Actions>
+    <Exec>
+      <Command>wscript.exe</Command>
+      <Arguments>"C:\Users\Admin\Documents\Life\repos\dear-oracle\scripts\run_daily_hidden.vbs"</Arguments>
+    </Exec>
+  </Actions>
+</Task>
+'@
+Register-ScheduledTask -TaskName 'DearOracle-Daily' -Xml $xml -Force
+```
 
 ## Tests
 
