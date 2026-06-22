@@ -1,11 +1,12 @@
-"""tests/test_prompt_lint.py — static prompt guardrail checks (Sprint 4, every commit).
+"""tests/test_prompt_lint.py — static prompt guardrail checks (Sprint 4+5B, every commit).
 
-Runs with zero Claude calls. Reads prompts/*.md directly.
+Runs with zero Claude calls. Reads prompts/*.md and skills/oracle-predictor/SKILL.md.
 """
 import re
 from pathlib import Path
 
 PROMPTS_DIR = Path(__file__).parent.parent / "prompts"
+SKILLS_DIR = Path(__file__).parent.parent / "skills"
 
 CANONICAL_VOICE = (
     "> You report what the market is pricing. You do not recommend positions,\n"
@@ -70,4 +71,47 @@ def test_prompt_no_source_naming():
     assert ('"the market"' in letter_text or '"the crowd"' in letter_text), (
         'letter.md must specify the allowed generic alternative ("the market" or "the crowd") '
         "in the no-source-naming constraint"
+    )
+
+
+# ── Sprint 5B: oracle-predictor SKILL.md guardrails ────────────────────────
+
+def _predictor_skill() -> str:
+    skill_md = SKILLS_DIR / "oracle-predictor" / "SKILL.md"
+    assert skill_md.exists(), f"oracle-predictor/SKILL.md not found at {skill_md}"
+    return skill_md.read_text(encoding="utf-8")
+
+
+def test_skill_predictor_contrarian_section():
+    """oracle-predictor/SKILL.md must contain a Contrarian/Commentary section."""
+    content = _predictor_skill()
+    assert "Contrarian" in content or "contrarian" in content, (
+        "oracle-predictor/SKILL.md must contain a contrarian note section"
+    )
+
+
+def test_skill_predictor_contrarian_labelled():
+    """The contrarian section must use the exact label 'Commentary (not advice):'."""
+    content = _predictor_skill()
+    assert "Commentary (not advice):" in content, (
+        "Contrarian section must use exact label 'Commentary (not advice):' — found none"
+    )
+
+
+def test_skill_predictor_contrarian_skip_if_no_source():
+    """Contrarian instructions must mandate SKIP when no credible counter-argument found."""
+    content = _predictor_skill()
+    lower = content.lower()
+    assert "skip" in lower, (
+        "Contrarian section must instruct the agent to SKIP if no credible counter-argument — "
+        "never fabricate"
+    )
+
+
+def test_skill_predictor_no_prohibited_tokens():
+    """oracle-predictor/SKILL.md must not contain prohibited imperative tokens."""
+    content = _predictor_skill()
+    match = PROHIBITED.search(content)
+    assert not match, (
+        f"Prohibited token '{match.group()}' found in oracle-predictor/SKILL.md"
     )

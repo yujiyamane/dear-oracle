@@ -1,7 +1,7 @@
 # Dear Oracle (DO) — PRFAQ v0.8
 
 > *Dear Oracle — letters from the crowd*
-> Status: v1 SHIPPED — Sprint 5 Phase A complete (oracle-log + Brier, 71 tests green, 2026-06-15); AI narrative implemented (Sprint 4) but best-effort in scheduled context — deterministic letter is the proven production path
+> Status: v1 SHIPPED — Sprint 5 Phase A complete (oracle-log + Brier, 2026-06-15); Sprint 5B item 1 SHIPPED (contrarian note, 125 tests green, 2026-06-22); AI narrative implemented (Sprint 4) but best-effort in scheduled context — deterministic letter is the proven production path
 > Family: Dear Keyperson (DK) · Dawn Patrol (DP) · **Dear Oracle (DO)**
 > Companion: INTERFACES.md (the contract), PLAN.md (the build), prompts/ (the voice)
 
@@ -112,7 +112,7 @@ Yes, by design. Data sources sit behind an adapter interface (INTERFACES.md §3)
 Everything user-specific lives in config, never code: `interests.example.json` (interests + per-item thresholds), `questions.example.json` (the popular-questions deck), `delivery.example.json` (email default; Discord/Telegram as power-user opt-ins), and the prompt templates in `prompts/` (the oracle's voice and scenario depth are editable; default scenario depth is two stages).
 
 **Q7. How accurate are the answers?**
-As accurate as the market — Dear Oracle adds no opinion of its own to the numbers. Prices are implied probabilities backed by real money. A planned *Contrarian note* (NOT in v1 — Sprint 5) will surface counter-arguments the market may be under-weighting, clearly labelled as commentary, e.g. *"favourites have lost in the knockout rounds in 3 of the last 4 tournaments."*
+As accurate as the market — Dear Oracle adds no opinion of its own to the numbers. Prices are implied probabilities backed by real money. A *Contrarian note* (SHIPPED Sprint 5B — 2026-06-22) surfaces counter-arguments the market may be under-weighting, clearly labelled as commentary, e.g. *"favourites have lost in the knockout rounds in 3 of the last 4 tournaments."* It fires one web search after the ranked block, is skipped when no credible source is found, and is labelled `Commentary (not advice):` at all times.
 
 **Q8. What languages does it speak?**
 v1 is English end-to-end: docs, prompts, and the oracle's replies. You may *ask* in any language Claude understands (a Japanese question is translated into a market-search query), but the reply and the morning letter come back in English. A `locale` config for reply language is deferred to v2.
@@ -270,7 +270,9 @@ All SKILL.md files agent-agnostic. Personal configs gitignored; examples sanitis
 v1 internal: Predictor answers a free-text question end-to-end in <60s (with web search; <30s without); Monitor produces its Day-1 confirmation immediately and its first delta letter from day 2; zero API billing confirmed over 30 days; the full pytest suite (deterministic core + dryRun E2E + prompt lint) runs green with **zero Claude calls**. Portfolio: a stranger reaches a first answer in under 5 minutes from the README; GitHub stars as a lagging signal.
 
 **Q18. Out of scope for v1**
-Trading or order placement of any kind. Real-time/intraday alerting. Macro Correlation View (Phase 2). Kalshi adapter (Phase 2). Static-page live-demo deck (Phase 2 showcase — requires a browser CORS check against the market API first). DK bridge (future). Reply-language locales (v2). Contrarian note + usage-driven interest suggestions (Sprint 5 Phase B — not yet built). Mobile app.
+Trading or order placement of any kind. Real-time/intraday alerting. Macro Correlation View (Phase 2). Kalshi adapter (Phase 2). Static-page live-demo deck (Phase 2 showcase — requires a browser CORS check against the market API first). DK bridge (future). Reply-language locales (v2). Usage-driven interest suggestions (Sprint 5B item 2 — next). Mobile app.
+
+Note: Contrarian note is SHIPPED as of Sprint 5B (2026-06-22) — see Q7.
 
 Note: Brier-scored prediction log (`oracle-log`: record/resolve/scores) is **LIVE** as of Sprint 5 Phase A.
 
@@ -303,8 +305,8 @@ Gate: PRFAQ ✅ -> UX mocks ✅ -> Grill Me ✅ (D1–D40) -> PLAN.md -> sub-age
 
 **What remains the same:** The prompt files (`prompts/letter.md`, `prompts/why.md`, `prompts/scenario.md`), the JSON-envelope contract, and the fallback logic are correct and unchanged. If the AI step does complete (e.g. in an interactive session or a cleaner environment), the full narrative letter is delivered. If it does not, the oracle never goes silent — the deterministic letter goes out instead and the fallback is logged.
 
-**Sprint 5 Phase B (not yet built):** Contrarian note per prediction (one web search, clearly labelled commentary) and usage-driven interest suggestions remain planned work — not the AI-narrative reliability problem above.
+**Sprint 5 Phase B:** Contrarian note SHIPPED (2026-06-22) — one web search, `Commentary (not advice):` label, skip-if-no-source rule, guardrail test green. Usage-driven interest suggestions (item 2) remain next.
 
 ---
 
-*v1 shipped — 2026-06-13. Sprint 4 complete: full pipeline live (collect → letter → Drive → doGet → email), GAS+Scheduler automation running, deterministic fallback proven. Sprint 5 Phase A complete (2026-06-15): oracle-log LIVE (record/resolve/scores, Brier scoring, 71 tests green). AI narrative implemented but best-effort in a scheduled context — deterministic letter is the proven production path (see Phase 2 section). Sprint 5 Phase B next: Contrarian note + usage-driven interest suggestions.*
+*v1 shipped — 2026-06-13. Sprint 4 complete: full pipeline live (collect → letter → Drive → doGet → email), GAS+Scheduler automation running, deterministic fallback proven. Sprint 5 Phase A complete (2026-06-15): oracle-log LIVE (record/resolve/scores, Brier scoring). Sprint 5 Phase B item 1 complete (2026-06-22): contrarian note SHIPPED — one web search, `Commentary (not advice):` label, skip-if-no-source rule, 125 tests green. AI narrative implemented but best-effort in a scheduled context — deterministic letter is the proven production path (see Phase 2 section). Next: usage-driven interest suggestions (Sprint 5B item 2).*

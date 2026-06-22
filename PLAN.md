@@ -136,8 +136,8 @@
 - Resolution poll: when all basket markets resolve, fill `outcomes_json` + `resolved_at`; partial baskets stay pending.
 - Multi-class Brier `(1/N) Σ (p_i - o_i)^2` for `brier_mine` and `brier_market`; binary = N=2 special case.
 - Deterministic table display (no AI narrative on the log in v1).
-- Contrarian note (commentary-labelled) added to `oracle-predictor` output.
-- Usage-driven interest suggestion: repeated off-profile questions -> offer a P.S.
+- ~~Contrarian note (commentary-labelled) added to `oracle-predictor` output.~~ **SHIPPED 2026-06-22** — `Commentary (not advice):` label, one web search, skip-if-no-source rule, 4 guardrail tests in `test_prompt_lint.py` green, 125 tests total green.
+- Usage-driven interest suggestion: repeated off-profile questions -> offer a P.S. **(next)**
 
 **TDD acceptance**
 - Binary basket: `my_probs {Yes:0.7}`, outcome Yes -> `brier_mine = 0.09`.
@@ -158,6 +158,7 @@
 | collector deltas/guard/transitions/backfill/export | pytest + in-memory SQLite | 0 |
 | pipeline split/fallback/digest/doGet | pytest + `oracle_dryrun` canned envelopes | 0 |
 | prompt guardrail | static lint on `prompts/*.md` | 0 |
+| skill guardrail | static lint on `skills/oracle-predictor/SKILL.md` (contrarian section, label, skip rule, prohibited tokens) | 0 |
 | Brier | pytest fixtures | 0 |
 | voice quality | golden-output, **manual pre-ship only** | small set |
 

@@ -94,3 +94,22 @@ python -m core.predictor "Who will win the 2026 World Cup?"
 The skill calls `core/predictor.py` via Bash and renders the ranked-% block
 exactly as shown above.  All probability mathematics is deterministic code;
 no AI is invoked for the Predictor output itself.
+
+## Contrarian note (Sprint 5B)
+
+After rendering the ranked-probability block, perform **one web search** to
+surface a credible counter-argument to the market's leading outcome:
+
+Search query: `{main_event_title} prediction market overconfident counter-argument`
+
+Present any credible counter-argument under this exact header:
+
+```
+Commentary (not advice): {1–2 sentences of the strongest counter-argument found}
+```
+
+Rules:
+- The label **must** be `Commentary (not advice):` — never omit or alter it.
+- If web search returns no credible counter-argument, **SKIP this section entirely**. Never fabricate or speculate.
+- One web search only — do not loop.
+- Conservative voice applies: the same imperative-financial-language prohibition from `prompts/letter.md` holds here — you are the messenger, not an adviser.
