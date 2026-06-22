@@ -372,10 +372,13 @@ class TestE6NotionIntegration:
 # ---------------------------------------------------------------------------
 
 class TestE7DKContract:
-    """Asserts do_hits output matches what DK_parseDoHitsData_ consumes.
+    """Asserts do_hits output matches the canonical contract DK_parseDoHitsData_ consumes.
 
-    DK reads: m.title → market_title, m.url, m.prob_now → probability,
-              m.delta_7d, m.volume_usd  (all other fields are ignored).
+    Canonical field names (producer = consumer = spec = this test):
+      meta: generated_at (ISO-8601+TZ), status ("ok"|"partial"), topics_queried, topics_with_hits
+      hits: dict keyed by WL-N → list of {title, url, prob_now, delta_7d, volume_usd}
+    DK maps: title→market_title, prob_now→probability (internal render names only).
+    Stale banner fires when meta.generated_at absent, age>2h, status=partial, or JSON broken.
     """
 
     _DK_REQUIRED = {"title", "url", "prob_now", "delta_7d", "volume_usd"}
@@ -427,15 +430,31 @@ class TestE7DKContract:
                     )
 
     def test_stale_check_uses_meta_fields(self):
-        """DK checks data.meta.status and age; both must be present in output."""
+        """DK checks data.meta; all canonical meta fields must be present in output."""
         from core.scan import scan
-        adapter = _mock_adapter([])
-        result = scan(watchlist=[], adapter=adapter)
+        topics = [
+            {"topic_key": "WL-1", "topic_label": "Rates", "weight": 5,
+             "keywords": "RBA", "lang": ["en-AU"]},
+            {"topic_key": "WL-2", "topic_label": "AI", "weight": 4,
+             "keywords": "AI", "lang": ["en-AU"]},
+        ]
+        from unittest.mock import MagicMock
+        adapter = MagicMock()
+        adapter.public_search.return_value = []
+        result = scan(watchlist=topics, adapter=adapter)
         assert "meta" in result, "do_hits must have a meta block"
-        assert "generated_at" in result["meta"], "meta.generated_at required for DK age check"
-        assert "status" in result["meta"], "meta.status required for DK stale check"
+        assert "generated_at" in result["meta"], "meta.generated_at required for DK age/stale check"
+        assert "status" in result["meta"], "meta.status required for DK banner check"
+        assert "topics_queried" in result["meta"], "meta.topics_queried required (canonical contract)"
+        assert "topics_with_hits" in result["meta"], "meta.topics_with_hits required (canonical contract)"
         assert result["meta"]["status"] in ("ok", "partial"), (
             f"meta.status must be 'ok' or 'partial', got {result['meta']['status']!r}"
+        )
+        assert result["meta"]["topics_queried"] == 2, (
+            f"topics_queried must equal watchlist length; got {result['meta']['topics_queried']}"
+        )
+        assert result["meta"]["topics_with_hits"] == 0, (
+            "no adapter hits → topics_with_hits must be 0"
         )
 
 
