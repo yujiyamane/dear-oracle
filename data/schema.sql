@@ -46,3 +46,10 @@ CREATE TABLE IF NOT EXISTS prediction_log (
   resolved_at   TEXT              -- ISO-8601 local; NULL until resolved
 );
 CREATE INDEX IF NOT EXISTS idx_pred_status ON prediction_log (status);
+
+CREATE TABLE IF NOT EXISTS query_log (
+  id          INTEGER PRIMARY KEY,
+  queried_at  TEXT    NOT NULL,
+  topic       TEXT    NOT NULL,
+  off_profile INTEGER NOT NULL DEFAULT 1
+);

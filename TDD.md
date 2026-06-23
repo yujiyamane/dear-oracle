@@ -98,6 +98,17 @@ tests/
 - `test_partial_basket_pending`: one constituent market unresolved -> row stays `resolved_at NULL`, not scored.
 - `test_log_table_deterministic`: the Brier table renders with no Claude call.
 
+## Sprint 5B item 2 — usage-driven interest suggestions (in test_predictor.py)
+
+All four tests use `election_multi_adapter` (soccer interests = off-profile, au-politics interests = on-profile) and the `db` in-memory fixture (schema includes `query_log`).
+
+- `test_off_profile_query_logged`: soccer interests + election query → one row in `query_log` with `off_profile=1`.
+- `test_on_profile_query_not_logged`: au-politics interests + election query (AU election is on-profile) → zero rows in `query_log`.
+- `test_suggestion_fires_at_threshold`: `_SUGGESTION_THRESHOLD` off-profile queries → `result.suggestion` is not None and contains the topic text.
+- `test_suggestion_absent_below_threshold`: `_SUGGESTION_THRESHOLD - 1` off-profile queries → `result.suggestion is None`.
+
+Storage: `query_log` table in `oracle.db` (`data/schema.sql`). Threshold: `_SUGGESTION_THRESHOLD = 3` (module constant in `core/predictor.py`). Off-profile = event's tags don't overlap any active interest tag_id (cold mode with no interests → never off-profile). `PredictorAnswer.suggestion: str | None` rendered by `_render_answer` when not None.
+
 ---
 
 ## Definition of done (per sprint)

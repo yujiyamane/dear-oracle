@@ -137,7 +137,7 @@
 - Multi-class Brier `(1/N) Σ (p_i - o_i)^2` for `brier_mine` and `brier_market`; binary = N=2 special case.
 - Deterministic table display (no AI narrative on the log in v1).
 - ~~Contrarian note (commentary-labelled) added to `oracle-predictor` output.~~ **SHIPPED 2026-06-22** — `Commentary (not advice):` label, one web search, skip-if-no-source rule, 4 guardrail tests in `test_prompt_lint.py` green, 125 tests total green.
-- Usage-driven interest suggestion: repeated off-profile questions -> offer a P.S. **(next)**
+- ~~Usage-driven interest suggestion: repeated off-profile questions -> offer a P.S.~~ **SHIPPED 2026-06-23** — `query_log` table in `oracle.db`; `_SUGGESTION_THRESHOLD = 3`; `PredictorAnswer.suggestion` field; 4 new tests; 129 tests total green.
 
 **TDD acceptance**
 - Binary basket: `my_probs {Yes:0.7}`, outcome Yes -> `brier_mine = 0.09`.

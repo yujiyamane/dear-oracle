@@ -1,7 +1,7 @@
 """core/predictor.py — oracle-predictor engine.
 
 Public API:
-  predict(query, adapter, interests_path, questions_deck_path)
+  predict(query, adapter, interests_path, questions_deck_path, db_conn)
       -> PredictorAnswer | ZeroResult
 
   resolve_deck_entries(entries, adapter) -> list[dict]
@@ -19,6 +19,7 @@ import json
 import re
 import sys
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -27,6 +28,9 @@ from core.resolve import Outcome, aggregate
 
 if TYPE_CHECKING:
     pass
+
+
+_SUGGESTION_THRESHOLD = 3
 
 
 # ---------------------------------------------------------------------------
@@ -38,6 +42,7 @@ class PredictorAnswer:
     main_event: Event
     outcomes: list[Outcome]
     also_pricing: list[Event] = field(default_factory=list)
+    suggestion: str | None = None
 
 
 @dataclass
@@ -54,6 +59,7 @@ def predict(
     adapter=None,
     interests_path: str | None = "config/interests.json",
     questions_deck_path: str | None = None,
+    db_conn=None,
 ) -> PredictorAnswer | ZeroResult:
     """Resolve a natural-language question to ranked probability outcomes.
 
@@ -62,14 +68,17 @@ def predict(
     whose tags overlap with the user's active interest tag_ids, then volume rank.
     Multi-match: highest-volume event is main; the rest go into also_pricing.
     Zero-result: return 3 nearest questions from the deck.
+
+    db_conn: optional sqlite3.Connection for usage tracking (query_log table).
     """
     if adapter is None:
         from core.adapter_polymarket import PolymarketAdapter
         adapter = PolymarketAdapter()
 
-    events = adapter.search(_simplify_query(query))
+    topic = _simplify_query(query)
+    events = adapter.search(topic)
 
-    # Known-user filter
+    interest_tag_ids: set[str] = set()
     if interests_path:
         interest_tag_ids = _load_interest_tag_ids(interests_path)
         if interest_tag_ids:
@@ -92,16 +101,20 @@ def predict(
     # Relevance gate: keep only also_pricing events whose title shares at least
     # one significant token (no stop words, no 4-digit years) with the simplified
     # query.  The main event is never gated — it already won by volume rank.
-    query_tokens = _relevance_tokens(_simplify_query(query))
+    query_tokens = _relevance_tokens(topic)
     also_pricing = [
         e for e in events[1:]
         if _relevance_tokens(e.event_title) & query_tokens
     ]
 
+    off_profile = _is_off_profile(main_event, interest_tag_ids)
+    suggestion = _track_and_suggest(db_conn, topic, off_profile)
+
     return PredictorAnswer(
         main_event=main_event,
         outcomes=aggregate(main_event),
         also_pricing=also_pricing,
+        suggestion=suggestion,
     )
 
 
@@ -198,6 +211,34 @@ def _load_interest_tag_ids(path: str) -> set[str]:
     return tag_ids
 
 
+def _is_off_profile(event: Event, interest_tag_ids: set[str]) -> bool:
+    """True when the event's tags don't match any active interest (and a profile exists)."""
+    if not interest_tag_ids:
+        return False
+    return not any(t.tag_id in interest_tag_ids for t in event.tags)
+
+
+def _track_and_suggest(db_conn, topic: str, off_profile: bool) -> str | None:
+    """Log off-profile query to query_log; return suggestion when threshold reached."""
+    if db_conn is None or not off_profile:
+        return None
+    db_conn.execute(
+        "INSERT INTO query_log (queried_at, topic, off_profile) VALUES (?, ?, 1)",
+        (datetime.now(timezone.utc).isoformat(), topic),
+    )
+    db_conn.commit()
+    (count,) = db_conn.execute(
+        "SELECT COUNT(*) FROM query_log WHERE topic = ? AND off_profile = 1",
+        (topic,),
+    ).fetchone()
+    if count >= _SUGGESTION_THRESHOLD:
+        return (
+            f'You\'ve asked about "{topic}" a few times — not yet in your watch profile.\n'
+            f"Add it: run oracle-onboard → P.S. add {topic}"
+        )
+    return None
+
+
 def _nearest_questions(query: str, deck_path: str | None) -> list[str]:
     """Return 3 nearest questions from the deck using keyword overlap scoring.
     Always returns exactly 3 strings; falls back to hardcoded stubs if no deck.
@@ -265,6 +306,8 @@ def _render_answer(result: PredictorAnswer) -> None:
             also += f" (+ {len(result.also_pricing) - 3} more)"
         print(f"\nAlso pricing: {also}")
         print("Ask about either for a full breakdown.")
+    if result.suggestion:
+        print(f"\n{result.suggestion}")
 
 
 def _render_zero(result: ZeroResult) -> None:

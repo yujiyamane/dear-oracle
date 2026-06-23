@@ -227,3 +227,117 @@ def test_also_pricing_relevance(noisy_adapter):
         "unrelated events (NBA, Election) share no token with 'world cup' "
         f"and must be filtered; got: {[e.event_title for e in result.also_pricing]}"
     )
+
+
+# ---------------------------------------------------------------------------
+# Sprint 5B item 2 — usage-driven interest suggestions
+# ---------------------------------------------------------------------------
+
+_SOCCER_INTERESTS = {
+    "schema_version": 1,
+    "updated_at": "2026-06-13T00:00:00+10:00",
+    "interests": [{
+        "name": "soccer",
+        "status": "active",
+        "resolved_tags": [{"slug": "world-cup", "tag_id": "204"}],
+        "focus": [],
+        "keyword_fallback": "soccer",
+        "max_markets": 5,
+        "threshold_pp": 5.0,
+        "added_at": "2026-06-13",
+    }],
+}
+
+_AU_POLITICS_INTERESTS = {
+    "schema_version": 1,
+    "updated_at": "2026-06-13T00:00:00+10:00",
+    "interests": [{
+        "name": "australian-politics",
+        "status": "active",
+        "resolved_tags": [{"slug": "australian-politics", "tag_id": "503"}],
+        "focus": [],
+        "keyword_fallback": "australian politics",
+        "max_markets": 5,
+        "threshold_pp": 5.0,
+        "added_at": "2026-06-13",
+    }],
+}
+
+
+def test_off_profile_query_logged(election_multi_adapter, tmp_path, db):
+    """Off-profile query (soccer interests, election query) → row in query_log off_profile=1."""
+    from core.predictor import predict, PredictorAnswer
+
+    interests_file = tmp_path / "interests.json"
+    interests_file.write_text(json.dumps(_SOCCER_INTERESTS))
+
+    result = predict(
+        "election",
+        adapter=election_multi_adapter,
+        interests_path=str(interests_file),
+        db_conn=db,
+    )
+
+    assert isinstance(result, PredictorAnswer)
+    rows = db.execute("SELECT * FROM query_log").fetchall()
+    assert len(rows) == 1
+    assert rows[0]["off_profile"] == 1
+
+
+def test_on_profile_query_not_logged(election_multi_adapter, tmp_path, db):
+    """On-profile query (au-politics interests, election query) → no rows in query_log."""
+    from core.predictor import predict
+
+    interests_file = tmp_path / "interests.json"
+    interests_file.write_text(json.dumps(_AU_POLITICS_INTERESTS))
+
+    predict(
+        "election",
+        adapter=election_multi_adapter,
+        interests_path=str(interests_file),
+        db_conn=db,
+    )
+
+    rows = db.execute("SELECT * FROM query_log").fetchall()
+    assert len(rows) == 0
+
+
+def test_suggestion_fires_at_threshold(election_multi_adapter, tmp_path, db):
+    """3 off-profile queries for same topic → result.suggestion is not None and mentions topic."""
+    from core.predictor import predict, PredictorAnswer, _SUGGESTION_THRESHOLD
+
+    interests_file = tmp_path / "interests.json"
+    interests_file.write_text(json.dumps(_SOCCER_INTERESTS))
+
+    result = None
+    for _ in range(_SUGGESTION_THRESHOLD):
+        result = predict(
+            "election",
+            adapter=election_multi_adapter,
+            interests_path=str(interests_file),
+            db_conn=db,
+        )
+
+    assert isinstance(result, PredictorAnswer)
+    assert result.suggestion is not None, "suggestion must fire at threshold"
+    assert "election" in result.suggestion.lower()
+
+
+def test_suggestion_absent_below_threshold(election_multi_adapter, tmp_path, db):
+    """2 off-profile queries (threshold-1) → result.suggestion is None."""
+    from core.predictor import predict, PredictorAnswer, _SUGGESTION_THRESHOLD
+
+    interests_file = tmp_path / "interests.json"
+    interests_file.write_text(json.dumps(_SOCCER_INTERESTS))
+
+    result = None
+    for _ in range(_SUGGESTION_THRESHOLD - 1):
+        result = predict(
+            "election",
+            adapter=election_multi_adapter,
+            interests_path=str(interests_file),
+            db_conn=db,
+        )
+
+    assert isinstance(result, PredictorAnswer)
+    assert result.suggestion is None, "suggestion must not fire below threshold"

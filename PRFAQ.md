@@ -1,7 +1,7 @@
 # Dear Oracle (DO) — PRFAQ v0.8
 
 > *Dear Oracle — letters from the crowd*
-> Status: v1 SHIPPED — Sprint 5 Phase A complete (oracle-log + Brier, 2026-06-15); Sprint 5B item 1 SHIPPED (contrarian note, 125 tests green, 2026-06-22); AI narrative implemented (Sprint 4) but best-effort in scheduled context — deterministic letter is the proven production path
+> Status: v1 SHIPPED — Sprint 5 Phase A complete (oracle-log + Brier, 2026-06-15); Sprint 5B item 1 SHIPPED (contrarian note, 125 tests green, 2026-06-22); Sprint 5B item 2 SHIPPED (usage-driven interest suggestions, 129 tests green, 2026-06-23); AI narrative implemented (Sprint 4) but best-effort in scheduled context — deterministic letter is the proven production path
 > Family: Dear Keyperson (DK) · Dawn Patrol (DP) · **Dear Oracle (DO)**
 > Companion: INTERFACES.md (the contract), PLAN.md (the build), prompts/ (the voice)
 
@@ -123,7 +123,7 @@ Through your first letter — a one-time onboarding exchange. You name your inte
 If an interest is broad, the first letter narrows by discovery, not interrogation — it shows what it found and offers a default: *"Soccer has thousands of markets. The most-watched types: [World Cup outright] [Premier League title] [All championships]. Press enter for championship markets across all competitions."*
 
 **Q9b. Can I change my interests later?**
-Yes — write a P.S. Four channels. (1) The `oracle-onboard` skill is also the editor: if a valid `interests.json` exists it starts in P.S. mode — "P.S. add F1", "P.S. drop surfing", "show my profile". (2) Usage-driven suggestions (Sprint 5): repeatedly ask the Predictor about an unlisted topic and it offers to add it. (3) Edit `interests.json` directly — plain JSON. (4) The morning-letter footer itself is the standing reminder and reply channel (see sample letter).
+Yes — write a P.S. Four channels. (1) The `oracle-onboard` skill is also the editor: if a valid `interests.json` exists it starts in P.S. mode — "P.S. add F1", "P.S. drop surfing", "show my profile". (2) Usage-driven suggestions (SHIPPED Sprint 5B item 2): repeatedly ask the Predictor about an unlisted topic (≥3 times) and it offers to add it. (3) Edit `interests.json` directly — plain JSON. (4) The morning-letter footer itself is the standing reminder and reply channel (see sample letter).
 
 **Q9c. What happens when there is nothing to show? (zero-states + transitions, LOCKED)**
 - *Predictor, no matching market*: "The crowd hasn't priced this yet. The closest questions they have answered: [top 3 nearest matches]."
@@ -272,7 +272,9 @@ v1 internal: Predictor answers a free-text question end-to-end in <60s (with web
 **Q18. Out of scope for v1**
 Trading or order placement of any kind. Real-time/intraday alerting. Macro Correlation View (Phase 2). Kalshi adapter (Phase 2). Static-page live-demo deck (Phase 2 showcase — requires a browser CORS check against the market API first). DK bridge (future). Reply-language locales (v2). Usage-driven interest suggestions (Sprint 5B item 2 — next). Mobile app.
 
-Note: Contrarian note is SHIPPED as of Sprint 5B (2026-06-22) — see Q7.
+Note: Contrarian note is SHIPPED as of Sprint 5B item 1 (2026-06-22) — see Q7.
+
+Note: Usage-driven interest suggestions are SHIPPED as of Sprint 5B item 2 (2026-06-23) — see Q9b.
 
 Note: Brier-scored prediction log (`oracle-log`: record/resolve/scores) is **LIVE** as of Sprint 5 Phase A.
 
@@ -305,8 +307,10 @@ Gate: PRFAQ ✅ -> UX mocks ✅ -> Grill Me ✅ (D1–D40) -> PLAN.md -> sub-age
 
 **What remains the same:** The prompt files (`prompts/letter.md`, `prompts/why.md`, `prompts/scenario.md`), the JSON-envelope contract, and the fallback logic are correct and unchanged. If the AI step does complete (e.g. in an interactive session or a cleaner environment), the full narrative letter is delivered. If it does not, the oracle never goes silent — the deterministic letter goes out instead and the fallback is logged.
 
-**Sprint 5 Phase B:** Contrarian note SHIPPED (2026-06-22) — one web search, `Commentary (not advice):` label, skip-if-no-source rule, guardrail test green. Usage-driven interest suggestions (item 2) remain next.
+**Sprint 5 Phase B item 1:** Contrarian note SHIPPED (2026-06-22) — one web search, `Commentary (not advice):` label, skip-if-no-source rule, guardrail test green.
+
+**Sprint 5 Phase B item 2:** Usage-driven interest suggestions SHIPPED (2026-06-23) — off-profile Predictor queries logged to `query_log` table in `oracle.db`; after `_SUGGESTION_THRESHOLD` (3) off-profile queries for the same topic, `PredictorAnswer.suggestion` is set and rendered in the CLI output. 129 tests green.
 
 ---
 
-*v1 shipped — 2026-06-13. Sprint 4 complete: full pipeline live (collect → letter → Drive → doGet → email), GAS+Scheduler automation running, deterministic fallback proven. Sprint 5 Phase A complete (2026-06-15): oracle-log LIVE (record/resolve/scores, Brier scoring). Sprint 5 Phase B item 1 complete (2026-06-22): contrarian note SHIPPED — one web search, `Commentary (not advice):` label, skip-if-no-source rule, 125 tests green. AI narrative implemented but best-effort in a scheduled context — deterministic letter is the proven production path (see Phase 2 section). Next: usage-driven interest suggestions (Sprint 5B item 2).*
+*v1 shipped — 2026-06-13. Sprint 4 complete: full pipeline live (collect → letter → Drive → doGet → email), GAS+Scheduler automation running, deterministic fallback proven. Sprint 5 Phase A complete (2026-06-15): oracle-log LIVE (record/resolve/scores, Brier scoring). Sprint 5 Phase B item 1 complete (2026-06-22): contrarian note SHIPPED — one web search, `Commentary (not advice):` label, skip-if-no-source rule, 125 tests green. Sprint 5 Phase B item 2 complete (2026-06-23): usage-driven interest suggestions SHIPPED — `query_log` table, threshold=3, `PredictorAnswer.suggestion` field, 129 tests green. AI narrative implemented but best-effort in a scheduled context — deterministic letter is the proven production path (see Phase 2 section). Sprint 5B complete — all planned items shipped.*
