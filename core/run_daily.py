@@ -118,8 +118,18 @@ def main() -> int:
     # Pass notion_token so Notion failure returns error status and skips the write
     log.info("scan start")
     do_hits_out = _do_hits_path()
-    scan(adapter=adapter, out_path=do_hits_out, notion_token=os.environ.get("NOTION_TOKEN"))
+    do_hits_result = scan(adapter=adapter, out_path=do_hits_out, notion_token=os.environ.get("NOTION_TOKEN"))
     log.info("scan done (output=%s)", do_hits_out or "none")
+
+    # Render deterministic markets fragment alongside do_hits.json → do_markets.html
+    if do_hits_out is not None:
+        from core.do_markets_renderer import write_markets_fragment
+        markets_out = do_hits_out.parent / "do_markets.html"
+        try:
+            write_markets_fragment(do_hits_result, markets_out)
+            log.info("do_markets.html written to %s", markets_out)
+        except Exception as exc:
+            log.warning("do_markets.html render failed (non-fatal): %s", exc)
 
     # Layer 1: collect
     log.info("collect start")
