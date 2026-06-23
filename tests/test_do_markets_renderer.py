@@ -229,6 +229,172 @@ class TestM4SourceAgnostic:
 
 
 # ---------------------------------------------------------------------------
+# M7 — curation: resolved-drop, dedup, |Δ7d| sort, cap, volume threshold
+# ---------------------------------------------------------------------------
+
+# Fixture that mirrors live do_hits.json structure (19 markets → should curate to 3)
+LIVE_LIKE_DO_HITS = {
+    "meta": {"generated_at": "2026-06-23T00:04:00+00:00", "status": "ok",
+             "topics_queried": 7, "topics_with_hits": 7},
+    "hits": {
+        "WL-5": [
+            {"title": "World Cup: Team Unbeaten", "url": "https://ex.com/1", "prob_now": 0.75, "delta_7d": 0.405, "volume_usd": 99000},
+            {"title": "World Cup: Team Unbeaten", "url": "https://ex.com/2", "prob_now": 0.60, "delta_7d": 0.10,  "volume_usd": 99000},
+            {"title": "World Cup: Team Unbeaten", "url": "https://ex.com/3", "prob_now": 0.61, "delta_7d": 0.314, "volume_usd": 99000},
+        ],
+        "WL-6": [
+            {"title": "WHO declare PHE", "url": "https://ex.com/4", "prob_now": 0.0,  "delta_7d": 0.0,   "volume_usd": 11000},
+        ],
+        "WL-11": [
+            {"title": "RBA Decision August", "url": "https://ex.com/5", "prob_now": 0.01, "delta_7d": -0.001, "volume_usd": 3000},
+            {"title": "RBA Decision August", "url": "https://ex.com/6", "prob_now": 0.01, "delta_7d": -0.062, "volume_usd": 3000},
+            {"title": "RBA Decision August", "url": "https://ex.com/7", "prob_now": 0.85, "delta_7d": 0.015,  "volume_usd": 3000},
+        ],
+        "WL-12": [
+            {"title": "Best AI model June", "url": "https://ex.com/8",  "prob_now": 0.07, "delta_7d": 0.012,  "volume_usd": 16_591_000},
+            {"title": "Best AI model June", "url": "https://ex.com/9",  "prob_now": 0.01, "delta_7d": -0.022, "volume_usd": 16_591_000},
+            {"title": "Best AI model June", "url": "https://ex.com/10", "prob_now": 0.0,  "delta_7d": None,   "volume_usd": 16_591_000},
+        ],
+        "WL-16": [
+            {"title": "Stray Kids Box Office", "url": "https://ex.com/11", "prob_now": 0.0, "delta_7d": None, "volume_usd": 31000},
+            {"title": "Stray Kids Box Office", "url": "https://ex.com/12", "prob_now": 0.0, "delta_7d": None, "volume_usd": 31000},
+            {"title": "Stray Kids Box Office", "url": "https://ex.com/13", "prob_now": 0.0, "delta_7d": None, "volume_usd": 31000},
+        ],
+        "WL-29": [
+            {"title": "Top AI model Dec", "url": "https://ex.com/14", "prob_now": 1.0, "delta_7d": 0.0, "volume_usd": 1_108_000},
+            {"title": "Top AI model Dec", "url": "https://ex.com/15", "prob_now": 0.0, "delta_7d": 0.0, "volume_usd": 1_108_000},
+            {"title": "Top AI model Dec", "url": "https://ex.com/16", "prob_now": 0.0, "delta_7d": 0.0, "volume_usd": 1_108_000},
+        ],
+        "WL-30": [
+            {"title": "World Test Championship", "url": "https://ex.com/17", "prob_now": 1.0,  "delta_7d": 0.309,  "volume_usd": 499000},
+            {"title": "World Test Championship", "url": "https://ex.com/18", "prob_now": 0.0,  "delta_7d": -0.289, "volume_usd": 499000},
+            {"title": "World Test Championship", "url": "https://ex.com/19", "prob_now": 0.0,  "delta_7d": -0.489, "volume_usd": 499000},
+        ],
+    },
+}
+
+
+class TestM7Curation:
+    def test_resolved_exact_zero_excluded(self):
+        """prob_now == 0.0 must be excluded from rendered output."""
+        from core.do_markets_renderer import render_markets_fragment
+        data = {"hits": {"WL-1": [
+            {"title": "Resolved zero", "url": "https://ex.com", "prob_now": 0.0, "delta_7d": 0.5, "volume_usd": 100000},
+            {"title": "Live market",   "url": "https://ex.com", "prob_now": 0.5, "delta_7d": 0.1, "volume_usd": 100000},
+        ]}}
+        html = render_markets_fragment(data)
+        assert "Live market" in html
+        assert "Resolved zero" not in html
+
+    def test_resolved_exact_one_excluded(self):
+        """prob_now == 1.0 must be excluded."""
+        from core.do_markets_renderer import render_markets_fragment
+        data = {"hits": {"WL-1": [
+            {"title": "Resolved one", "url": "https://ex.com", "prob_now": 1.0, "delta_7d": 0.3, "volume_usd": 50000},
+            {"title": "Live market",  "url": "https://ex.com", "prob_now": 0.6, "delta_7d": 0.1, "volume_usd": 50000},
+        ]}}
+        html = render_markets_fragment(data)
+        assert "Live market" in html
+        assert "Resolved one" not in html
+
+    def test_near_resolved_threshold_excluded(self):
+        """prob_now <= resolved_threshold must be excluded (default 0.01)."""
+        from core.do_markets_renderer import render_markets_fragment
+        data = {"hits": {"WL-1": [
+            {"title": "Near zero", "url": "https://ex.com", "prob_now": 0.01, "delta_7d": 0.4, "volume_usd": 50000},
+            {"title": "Live",      "url": "https://ex.com", "prob_now": 0.50, "delta_7d": 0.1, "volume_usd": 50000},
+        ]}}
+        html = render_markets_fragment(data)
+        assert "Live" in html
+        assert "Near zero" not in html
+
+    def test_dedup_same_title_keeps_highest_prob(self):
+        """Multiple markets with same title in a WL key → only highest prob_now shown."""
+        from core.do_markets_renderer import render_markets_fragment
+        data = {"hits": {"WL-1": [
+            {"title": "Same Event", "url": "https://ex.com/a", "prob_now": 0.45, "delta_7d": 0.05, "volume_usd": 50000},
+            {"title": "Same Event", "url": "https://ex.com/b", "prob_now": 0.72, "delta_7d": 0.10, "volume_usd": 50000},
+            {"title": "Same Event", "url": "https://ex.com/c", "prob_now": 0.33, "delta_7d": 0.20, "volume_usd": 50000},
+        ]}}
+        html = render_markets_fragment(data)
+        # 72% must appear; 45% and 33% must not (only one row for this event)
+        assert "72%" in html
+        assert html.count("Same Event") == 1, "Expected exactly one row per event title"
+
+    def test_sort_by_abs_delta_descending(self):
+        """Markets must be ordered by |delta_7d| descending across WL keys."""
+        from core.do_markets_renderer import render_markets_fragment
+        data = {"hits": {
+            "WL-A": [{"title": "Small delta", "url": "https://ex.com/a", "prob_now": 0.5, "delta_7d": 0.02, "volume_usd": 10000}],
+            "WL-B": [{"title": "Big delta",   "url": "https://ex.com/b", "prob_now": 0.5, "delta_7d": 0.30, "volume_usd": 10000}],
+            "WL-C": [{"title": "Neg delta",   "url": "https://ex.com/c", "prob_now": 0.5, "delta_7d": -0.15, "volume_usd": 10000}],
+        }}
+        html = render_markets_fragment(data)
+        pos_big  = html.index("Big delta")
+        pos_neg  = html.index("Neg delta")
+        pos_small = html.index("Small delta")
+        assert pos_big < pos_neg < pos_small, "Expected order: Big(0.30) > Neg(-0.15) > Small(0.02)"
+
+    def test_cap_at_max_markets(self):
+        """render_markets_fragment(data, max_markets=2) must show at most 2 rows."""
+        from core.do_markets_renderer import render_markets_fragment
+        data = {"hits": {f"WL-{i}": [
+            {"title": f"Market {i}", "url": "https://ex.com", "prob_now": 0.5, "delta_7d": i * 0.01, "volume_usd": 10000}
+        ] for i in range(1, 8)}}
+        html = render_markets_fragment(data, max_markets=2)
+        # Count rows by counting occurrences of "Market " prefix in content
+        count = sum(1 for i in range(1, 8) if f"Market {i}" in html)
+        assert count <= 2, f"Expected ≤2 markets, found {count}"
+
+    def test_min_volume_filters_thin_markets(self):
+        """Markets below min_volume_usd must be excluded."""
+        from core.do_markets_renderer import render_markets_fragment
+        data = {"hits": {"WL-1": [
+            {"title": "Thin market", "url": "https://ex.com/a", "prob_now": 0.5, "delta_7d": 0.5, "volume_usd": 500},
+            {"title": "Fat market",  "url": "https://ex.com/b", "prob_now": 0.5, "delta_7d": 0.1, "volume_usd": 50000},
+        ]}}
+        html = render_markets_fragment(data, min_volume_usd=1000)
+        assert "Fat market" in html
+        assert "Thin market" not in html
+
+    def test_none_delta_sorts_last(self):
+        """Markets with delta_7d=None must sort after markets with real deltas."""
+        from core.do_markets_renderer import render_markets_fragment
+        data = {"hits": {
+            "WL-A": [{"title": "No delta",   "url": "https://ex.com/a", "prob_now": 0.5, "delta_7d": None, "volume_usd": 10000}],
+            "WL-B": [{"title": "Has delta",  "url": "https://ex.com/b", "prob_now": 0.5, "delta_7d": 0.05, "volume_usd": 10000}],
+        }}
+        html = render_markets_fragment(data)
+        assert html.index("Has delta") < html.index("No delta"), "None-delta must sort last"
+
+    def test_integration_live_like_19_to_3(self):
+        """Live-like 19-market fixture must curate down to exactly 3 rows: World Cup, RBA, AI."""
+        from core.do_markets_renderer import render_markets_fragment
+        html = render_markets_fragment(LIVE_LIKE_DO_HITS)
+        assert "World Cup" in html,      "Expected World Cup market to survive curation"
+        assert "RBA Decision" in html,   "Expected RBA market to survive curation"
+        assert "Best AI model" in html,  "Expected AI model market to survive curation"
+        assert "Stray Kids" not in html, "Stray Kids must be excluded (resolved 0%)"
+        assert "WHO declare" not in html, "WHO PHE must be excluded (resolved 0%)"
+        # Exactly 3 unique event titles should be present
+        count = sum(1 for title in ("World Cup", "RBA Decision", "Best AI model") if title in html)
+        assert count == 3
+        # Confirm World Cup is the top row (highest |Δ7d|)
+        assert html.index("World Cup") < html.index("RBA Decision")
+        assert html.index("World Cup") < html.index("Best AI model")
+
+    def test_all_resolved_returns_empty(self):
+        """If all markets are resolved after curation, returns ''."""
+        from core.do_markets_renderer import render_markets_fragment
+        data = {"hits": {"WL-1": [
+            {"title": "Done", "url": "https://ex.com", "prob_now": 0.0,  "delta_7d": 0.9, "volume_usd": 1000000},
+            {"title": "Done", "url": "https://ex.com", "prob_now": 1.0,  "delta_7d": 0.9, "volume_usd": 1000000},
+        ]}}
+        html = render_markets_fragment(data)
+        assert html == "", "All-resolved hits must produce empty string"
+
+
+# ---------------------------------------------------------------------------
 # M5 — write_markets_fragment: atomic write, idempotent
 # ---------------------------------------------------------------------------
 

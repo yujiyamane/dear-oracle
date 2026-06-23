@@ -7,8 +7,15 @@ Rules:
 - No AI. Deterministic only.
 - Inline styles throughout (no external CSS dependencies).
 - Source-agnostic: never names the data source.
-- Empty hits → returns '' so DK can omit the section cleanly.
+- Empty hits or all-resolved hits → returns '' so DK can omit the section cleanly.
 - Never raises on malformed input.
+
+Curation (applied before rendering):
+1. Drop resolved: prob_now <= RESOLVED_THRESHOLD or >= (1 - RESOLVED_THRESHOLD)
+2. Drop below min_volume_usd (default 0 = no filter)
+3. Deduplicate by normalised title within each WL key → keep highest prob_now
+4. Sort all survivors by |delta_7d| descending (None treated as 0)
+5. Cap at max_markets rows
 """
 from __future__ import annotations
 
@@ -27,26 +34,31 @@ _MUTED = "#5B707B"
 _LIGHT_BG = "#F5F7FA"
 _BORDER = "#E2EAEC"
 
+RESOLVED_THRESHOLD: float = 0.01
+MAX_MARKETS: int = 5
+MIN_VOLUME_USD: float = 0.0
 
-def render_markets_fragment(do_hits: dict | None) -> str:
-    """Return a self-contained <section> HTML fragment, or '' when hits are empty."""
+
+def render_markets_fragment(
+    do_hits: dict | None,
+    *,
+    max_markets: int = MAX_MARKETS,
+    min_volume_usd: float = MIN_VOLUME_USD,
+    resolved_threshold: float = RESOLVED_THRESHOLD,
+) -> str:
+    """Return a curated, self-contained <section> HTML fragment, or '' when nothing survives."""
     if not do_hits or not isinstance(do_hits, dict):
         return ""
     hits = do_hits.get("hits") or {}
     if not isinstance(hits, dict) or not hits:
         return ""
 
-    rows_html = ""
-    for topic_key, markets in hits.items():
-        if not isinstance(markets, list):
-            continue
-        for m in markets:
-            if not isinstance(m, dict):
-                continue
-            rows_html += _render_row(topic_key, m)
-
-    if not rows_html:
+    curated = _curate(hits, max_markets=max_markets, min_volume_usd=min_volume_usd,
+                      resolved_threshold=resolved_threshold)
+    if not curated:
         return ""
+
+    rows_html = "".join(_render_row(m) for m in curated)
 
     return f"""<section style="margin-top:32px;border-top:1px solid {_BORDER};padding-top:24px">
   <div style="font-family:'SF Mono',ui-monospace,Consolas,monospace;font-size:11px;font-weight:700;letter-spacing:.18em;color:{_BURNT};text-transform:uppercase;margin-bottom:14px">Market Signals</div>
@@ -59,7 +71,43 @@ def render_markets_fragment(do_hits: dict | None) -> str:
 </section>"""
 
 
-def _render_row(topic_key: str, m: dict) -> str:
+def _curate(
+    hits: dict,
+    *,
+    max_markets: int,
+    min_volume_usd: float,
+    resolved_threshold: float,
+) -> list[dict]:
+    """Return a sorted, deduped, capped list of market dicts ready for rendering."""
+    candidates: list[dict] = []
+
+    for markets in hits.values():
+        if not isinstance(markets, list):
+            continue
+        # Dedup within this WL key by normalised title → keep highest prob_now
+        best: dict[str, dict] = {}
+        for m in markets:
+            if not isinstance(m, dict):
+                continue
+            prob = m.get("prob_now")
+            if prob is None:
+                continue
+            if prob <= resolved_threshold or prob >= (1.0 - resolved_threshold):
+                continue
+            vol = m.get("volume_usd") or 0.0
+            if min_volume_usd > 0 and vol < min_volume_usd:
+                continue
+            key = (m.get("title") or "").strip().lower()
+            existing = best.get(key)
+            if existing is None or prob > (existing.get("prob_now") or 0.0):
+                best[key] = m
+        candidates.extend(best.values())
+
+    candidates.sort(key=lambda m: abs(m.get("delta_7d") or 0.0), reverse=True)
+    return candidates[:max_markets]
+
+
+def _render_row(m: dict) -> str:
     title = _esc(m.get("title") or "")
     url = _safe_href(m.get("url") or "")
     prob = m.get("prob_now")
