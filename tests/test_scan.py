@@ -429,6 +429,22 @@ class TestE7DKContract:
                         f"delta_7d {d} must be decimal [-1,1], not percentage points"
                     )
 
+    def test_hit_entries_expose_outcome_label(self):
+        """outcome_label is present in every hit entry (additive to DK contract)."""
+        from core.scan import scan
+        event = _make_event("RBA cuts interest rates by 25bp", prob=0.55, prob_7d=0.50)
+        adapter = _mock_adapter([event])
+        topics = [{"topic_key": "WL-1", "topic_label": "Rates", "weight": 5,
+                   "keywords": "rates;RBA", "lang": ["en-AU"]}]
+        result = scan(watchlist=topics, adapter=adapter)
+        assert result["hits"], "scan must produce at least one hit for this topic"
+        for key, markets in result["hits"].items():
+            for m in markets:
+                assert "outcome_label" in m, (
+                    f"Hit entry for {key} missing outcome_label (additive contract)"
+                )
+                assert isinstance(m["outcome_label"], str), "outcome_label must be a string"
+
     def test_stale_check_uses_meta_fields(self):
         """DK checks data.meta; all canonical meta fields must be present in output."""
         from core.scan import scan
@@ -742,6 +758,115 @@ class TestE10Delta7d:
         assert abs(m.prob_7d_ago - 0.50) < 0.001, (
             f"prob_7d_ago should be ~0.50 (0.55 - 0.05), got {m.prob_7d_ago}"
         )
+
+
+# ---------------------------------------------------------------------------
+# E11 — outcome_label field + leading-outcome always captured (DO-6.1)
+# ---------------------------------------------------------------------------
+
+class TestE11OutcomeLabelAndLeader:
+    """E11: outcome_label rides through scan; leader always captured for multi-outcome events."""
+
+    def _make_multi_event(self, leader_prob: float = 0.60, tail_probs: list | None = None) -> "object":
+        """Multi-outcome event where the leader is NOT at position 0 (simulates API order)."""
+        from core.models import Event, Market
+        tails = tail_probs or [0.05, 0.02]
+        markets = [
+            Market(f"mkt-tail{i}", f"TailCo{i}", f"https://pm.com/tail{i}", p)
+            for i, p in enumerate(tails)
+        ]
+        markets.append(Market("mkt-leader", "LeaderCo", "https://pm.com/leader", leader_prob))
+        return Event(
+            event_id="evt-multi", event_title="Best AI model 2026",
+            markets=markets, volume_usd=1_000_000, end_date="2026-06-30", tags=[]
+        )
+
+    def test_outcome_label_present_in_every_hit_entry(self):
+        """Every hit entry must have outcome_label as a string field."""
+        from core.scan import scan
+        from core.models import Event, Market
+        m = Market("mkt1", "Anthropic", "https://pm.com/test", 0.93, prob_7d_ago=0.88)
+        event = Event(
+            event_id="evt1", event_title="Best AI model end of June",
+            markets=[m], volume_usd=1_000_000, end_date="2026-06-30", tags=[]
+        )
+        adapter = _mock_adapter([event])
+        topic = {"topic_key": "WL-12", "topic_label": "AI",
+                 "keywords": "AI;best model end of June", "lang": ["en-AU"]}
+        result = scan(watchlist=[topic], adapter=adapter)
+        assert result["hits"], "scan must produce at least one hit"
+        for markets in result["hits"].values():
+            for hit in markets:
+                assert "outcome_label" in hit, "Hit entry must have outcome_label"
+                assert isinstance(hit["outcome_label"], str), "outcome_label must be a string"
+
+    def test_outcome_label_value_matches_market(self):
+        """outcome_label in hit must equal the Market.outcome_label from the adapter."""
+        from core.scan import scan
+        from core.models import Event, Market
+        m = Market("mkt1", "Anthropic", "https://pm.com/test", 0.93, prob_7d_ago=0.88)
+        event = Event(
+            event_id="evt1", event_title="Best AI model end of June",
+            markets=[m], volume_usd=1_000_000, end_date="2026-06-30", tags=[]
+        )
+        adapter = _mock_adapter([event])
+        topic = {"topic_key": "WL-12", "topic_label": "AI",
+                 "keywords": "AI;best model end of June", "lang": ["en-AU"]}
+        result = scan(watchlist=[topic], adapter=adapter)
+        hits = result["hits"].get("WL-12", [])
+        assert any(h["outcome_label"] == "Anthropic" for h in hits), (
+            "outcome_label must match the adapter Market.outcome_label"
+        )
+
+    def test_leader_captured_when_not_at_position_zero(self):
+        """Leader at API-tail position must appear in hits (not dropped by [:3] slice).
+
+        5 tail markets before the leader → [:3] without sort drops the leader entirely.
+        """
+        from core.scan import scan
+        event = self._make_multi_event(leader_prob=0.60, tail_probs=[0.05, 0.03, 0.02, 0.01, 0.005])
+        adapter = _mock_adapter([event])
+        topic = {"topic_key": "WL-12", "topic_label": "AI",
+                 "keywords": "AI;best model 2026", "lang": ["en-AU"]}
+        result = scan(watchlist=[topic], adapter=adapter)
+        assert "WL-12" in result["hits"], "Must have hits for this topic"
+        probs = [h["prob_now"] for h in result["hits"]["WL-12"]]
+        assert 0.60 in probs, f"Leading outcome (0.60) must be captured; got probs={probs}"
+
+    def test_leader_is_first_entry_after_sort(self):
+        """Hits are sorted by prob_now desc — leader at prob=0.91 must be first, even if last in API."""
+        from core.scan import scan
+        from core.models import Event, Market
+        markets = [Market(f"mkt-{i}", f"Co{i}", f"https://pm.com/{i}", 0.01) for i in range(9)]
+        markets.append(Market("mkt-lead", "TheBest", "https://pm.com/lead", 0.91))
+        event = Event(
+            event_id="evt-tail", event_title="AI model race 2026",
+            markets=markets, volume_usd=2_000_000, end_date="2026-06-30", tags=[]
+        )
+        adapter = _mock_adapter([event])
+        topic = {"topic_key": "WL-12", "topic_label": "AI",
+                 "keywords": "AI;model race 2026", "lang": ["en-AU"]}
+        result = scan(watchlist=[topic], adapter=adapter)
+        assert "WL-12" in result["hits"], "Must have hits"
+        first = result["hits"]["WL-12"][0]
+        assert first["prob_now"] == 0.91, f"First entry must be leader (0.91), got {first['prob_now']}"
+        assert first["outcome_label"] == "TheBest", f"Leader label must be 'TheBest', got {first['outcome_label']!r}"
+
+    def test_existing_dk_fields_unchanged(self):
+        """Adding outcome_label must not remove existing DK-required fields."""
+        from core.scan import scan
+        from core.models import Event, Market
+        m = Market("mkt1", "Yes", "https://pm.com/t", 0.72, prob_7d_ago=0.65)
+        event = Event("e1", "RBA rate decision", [m], volume_usd=50_000, end_date="2026-08-05", tags=[])
+        adapter = _mock_adapter([event])
+        topic = {"topic_key": "WL-1", "topic_label": "RBA",
+                 "keywords": "RBA;rate decision", "lang": ["en-AU"]}
+        result = scan(watchlist=[topic], adapter=adapter)
+        required = {"title", "url", "prob_now", "delta_7d", "volume_usd"}
+        for markets in result["hits"].values():
+            for hit in markets:
+                missing = required - hit.keys()
+                assert not missing, f"Additive change broke existing fields: {missing}"
 
 
 # ---------------------------------------------------------------------------

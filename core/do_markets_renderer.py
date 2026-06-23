@@ -108,7 +108,9 @@ def _curate(
 
 
 def _render_row(m: dict) -> str:
-    title = _esc(m.get("title") or "")
+    raw_title = m.get("title") or ""
+    label = m.get("outcome_label") or ""
+    title = _esc(f"{raw_title} — {label}" if label else raw_title)
     url = _safe_href(m.get("url") or "")
     prob = m.get("prob_now")
     delta = m.get("delta_7d")

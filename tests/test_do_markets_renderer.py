@@ -468,3 +468,78 @@ class TestM6MalformedInput:
         from core.do_markets_renderer import render_markets_fragment
         html = render_markets_fragment({"hits": {"WL-1": "bad-value"}})
         assert isinstance(html, str)
+
+
+# ---------------------------------------------------------------------------
+# M8 — outcome_label rendering (DO-6.1)
+# ---------------------------------------------------------------------------
+
+class TestM8OutcomeLabel:
+    """Renderer appends '— {label}' to title when outcome_label is non-empty."""
+
+    def test_label_appended_to_title_when_present(self):
+        """When outcome_label is set, row shows '{title} — {label}'."""
+        from core.do_markets_renderer import render_markets_fragment
+        data = {"hits": {"WL-12": [{
+            "title": "Which company has best AI model?",
+            "outcome_label": "Anthropic",
+            "url": "https://example.com/ai",
+            "prob_now": 0.93,
+            "delta_7d": 0.05,
+            "volume_usd": 16_000_000,
+        }]}}
+        html = render_markets_fragment(data)
+        assert "Which company has best AI model? — Anthropic" in html, (
+            "Row must show 'title — label' when outcome_label is set"
+        )
+
+    def test_missing_label_key_shows_bare_title(self):
+        """When outcome_label key is absent, row shows bare title (no ' — ')."""
+        from core.do_markets_renderer import render_markets_fragment
+        data = {"hits": {"WL-5": [{
+            "title": "Will interest rates be cut?",
+            "url": "https://example.com/rates",
+            "prob_now": 0.72,
+            "delta_7d": 0.05,
+            "volume_usd": 1_500_000,
+        }]}}
+        html = render_markets_fragment(data)
+        assert "Will interest rates be cut?" in html
+        assert " — " not in html, "No em-dash separator when outcome_label absent"
+
+    def test_empty_label_shows_bare_title(self):
+        """When outcome_label is empty string, row shows bare title."""
+        from core.do_markets_renderer import render_markets_fragment
+        data = {"hits": {"WL-5": [{
+            "title": "Will rates be cut?",
+            "outcome_label": "",
+            "url": "https://example.com/rates",
+            "prob_now": 0.72,
+            "delta_7d": 0.05,
+            "volume_usd": 1_500_000,
+        }]}}
+        html = render_markets_fragment(data)
+        assert "Will rates be cut?" in html
+        assert " — " not in html, "No em-dash separator when outcome_label is empty"
+
+    def test_dedup_keeps_leader_label(self):
+        """Dedup by title keeps the highest-prob entry — that entry must carry its label."""
+        from core.do_markets_renderer import render_markets_fragment
+        data = {"hits": {"WL-12": [
+            {"title": "Best AI model", "outcome_label": "Anthropic",
+             "url": "https://ex.com/1", "prob_now": 0.93, "delta_7d": 0.05, "volume_usd": 10_000_000},
+            {"title": "Best AI model", "outcome_label": "Google",
+             "url": "https://ex.com/2", "prob_now": 0.06, "delta_7d": 0.01, "volume_usd": 10_000_000},
+        ]}}
+        html = render_markets_fragment(data)
+        assert "Best AI model — Anthropic" in html, "Dedup must keep leader with its label"
+        assert "93%" in html
+        assert html.count("Best AI model") == 1, "Dedup must produce exactly one row"
+
+    def test_existing_fixtures_unaffected_no_label(self):
+        """Existing FULL_DO_HITS fixture (no outcome_label) must still render correctly."""
+        from core.do_markets_renderer import render_markets_fragment
+        html = render_markets_fragment(FULL_DO_HITS)
+        assert "interest rates" in html.lower()
+        assert "72%" in html
+        assert " — " not in html, "No em-dash when no labels in fixture"

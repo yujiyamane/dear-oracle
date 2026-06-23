@@ -212,8 +212,10 @@ def _query_topic(topic: dict, adapter: Any) -> list[dict]:
             "prob_now": round(prob_now, 4),
             "delta_7d": delta_7d,
             "volume_usd": getattr(best_event, "volume_usd", None),
+            "outcome_label": getattr(m, "outcome_label", "") or "",
         })
 
+    markets.sort(key=lambda x: x["prob_now"], reverse=True)
     return markets[:3]
 
 
