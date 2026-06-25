@@ -13,6 +13,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
 from pathlib import Path
 from typing import Any
 
@@ -246,6 +247,7 @@ def scan(
                 return {
                     "meta": {
                         "generated_at": datetime.now(timezone.utc).isoformat(),
+                        "date_syd": datetime.now(ZoneInfo("Australia/Sydney")).strftime("%Y-%m-%d"),
                         "status": "error",
                         "topics_queried": 0,
                         "topics_with_hits": 0,
@@ -280,6 +282,7 @@ def scan(
     result = {
         "meta": {
             "generated_at": datetime.now(timezone.utc).isoformat(),
+            "date_syd": datetime.now(ZoneInfo("Australia/Sydney")).strftime("%Y-%m-%d"),
             "status": status,
             "topics_queried": len(watchlist),
             "topics_with_hits": len(hits),

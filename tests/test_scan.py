@@ -460,6 +460,7 @@ class TestE7DKContract:
         result = scan(watchlist=topics, adapter=adapter)
         assert "meta" in result, "do_hits must have a meta block"
         assert "generated_at" in result["meta"], "meta.generated_at required for DK age/stale check"
+        assert "date_syd" in result["meta"], "meta.date_syd required for TZ-safe DK same-day gate"
         assert "status" in result["meta"], "meta.status required for DK banner check"
         assert "topics_queried" in result["meta"], "meta.topics_queried required (canonical contract)"
         assert "topics_with_hits" in result["meta"], "meta.topics_with_hits required (canonical contract)"
