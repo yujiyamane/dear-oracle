@@ -221,6 +221,68 @@ def _query_topic(topic: dict, adapter: Any) -> list[dict]:
 
 
 # ---------------------------------------------------------------------------
+# Pool: top-volume Tier B candidates
+# ---------------------------------------------------------------------------
+
+def _build_pool(
+    adapter: Any,
+    hits_urls: set,
+    limit: int = 5,
+    min_volume: float = 10_000.0,
+) -> list[dict]:
+    """Fetch top-volume open markets; filter and sort for DK Tier B pool."""
+    try:
+        events = adapter.top_by_volume(limit=50)
+        if not isinstance(events, list):
+            return []
+    except Exception as exc:
+        log.warning("_build_pool: top_by_volume failed: %s", exc)
+        return []
+
+    candidates = []
+    for event in events:
+        vol = getattr(event, "volume_usd", None) or 0.0
+        if vol < min_volume:
+            continue
+
+        best_p: float = -1.0
+        best_m = None
+        for m in getattr(event, "markets", []):
+            p = getattr(m, "prob_now", None)
+            if p is None:
+                continue
+            p = float(p)
+            if not (0.01 < p < 0.99):
+                continue
+            url = getattr(m, "url", "") or ""
+            if not url:
+                continue
+            if url in hits_urls:
+                continue
+            if p > best_p:
+                best_p = p
+                best_m = m
+
+        if best_m is None:
+            continue
+
+        url = getattr(best_m, "url", "")
+        prob_7d = getattr(best_m, "prob_7d_ago", None)
+        delta = round(best_p - float(prob_7d), 4) if prob_7d is not None else None
+        candidates.append({
+            "title": getattr(event, "event_title", ""),
+            "url": url,
+            "prob_now": round(best_p, 4),
+            "delta_7d": delta,
+            "volume_usd": vol,
+            "outcome_label": getattr(best_m, "outcome_label", "") or "",
+        })
+
+    candidates.sort(key=lambda x: x["volume_usd"], reverse=True)
+    return candidates[:limit]
+
+
+# ---------------------------------------------------------------------------
 # Main scan
 # ---------------------------------------------------------------------------
 
@@ -278,6 +340,9 @@ def scan(
             log.warning("scan: error on topic %s: %s", topic_key, exc)
             errors += 1
 
+    hits_urls: set = {m["url"] for markets in hits.values() for m in markets if m.get("url")}
+    pool = _build_pool(adapter, hits_urls)
+
     status = "ok" if errors == 0 else "partial"
     result = {
         "meta": {
@@ -288,6 +353,7 @@ def scan(
             "topics_with_hits": len(hits),
         },
         "hits": hits,
+        "pool": pool,
     }
 
     if out_path is not None:

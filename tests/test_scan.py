@@ -874,6 +874,213 @@ class TestE11OutcomeLabelAndLeader:
 # Shared helpers
 # ---------------------------------------------------------------------------
 
+# ---------------------------------------------------------------------------
+# E12 — pool field: top-volume Tier B candidates
+# ---------------------------------------------------------------------------
+
+class TestPoolField:
+    """Pool: high-vol open markets for DK Tier B (volume>=10k, 0.01<prob<0.99, dedup, abs(delta) sort)."""
+
+    def _make_pool_event(self, title: str, prob: float, prob_7d, vol: float, url: str = ""):
+        from core.models import Event, Market
+        u = url or f"https://polymarket.com/event/{title[:12].lower().replace(' ', '-')}"
+        m = Market(
+            market_id=f"mkt-pool-{title[:6]}",
+            outcome_label="Yes",
+            url=u,
+            prob_now=prob,
+            prob_7d_ago=prob_7d,
+        )
+        return Event(event_id=f"evt-pool-{title[:6]}", event_title=title,
+                     markets=[m], volume_usd=vol, end_date="2027-12-31", tags=[])
+
+    def _pool_adapter(self, pool_events):
+        adapter = MagicMock()
+        adapter.public_search.return_value = []
+        adapter.top_by_volume.return_value = pool_events
+        return adapter
+
+    def test_pool_excludes_low_volume(self):
+        """volume_usd < 10000 must be excluded from pool."""
+        from core.scan import _build_pool
+        event = self._make_pool_event("Cheap market", prob=0.5, prob_7d=0.4, vol=9999.0)
+        adapter = self._pool_adapter([event])
+        pool = _build_pool(adapter, hits_urls=set())
+        assert pool == [], "volume < 10000 must be excluded"
+
+    def test_pool_excludes_extreme_prob(self):
+        """prob_now >= 0.99 or <= 0.01 must be excluded from pool."""
+        from core.scan import _build_pool
+        high = self._make_pool_event("Near yes", prob=0.995, prob_7d=0.99, vol=50000.0)
+        low = self._make_pool_event("Near no", prob=0.005, prob_7d=0.01, vol=50000.0)
+        adapter = self._pool_adapter([high, low])
+        pool = _build_pool(adapter, hits_urls=set())
+        assert pool == [], "prob >= 0.99 or <= 0.01 must be excluded"
+
+    def test_pool_excludes_hits_urls(self):
+        """URL already in hits must not appear in pool."""
+        from core.scan import _build_pool
+        shared = "https://polymarket.com/event/shared-market"
+        event = self._make_pool_event("Shared market", prob=0.5, prob_7d=0.4, vol=50000.0, url=shared)
+        adapter = self._pool_adapter([event])
+        pool = _build_pool(adapter, hits_urls={shared})
+        assert pool == [], "URL in hits must be excluded from pool"
+
+    def test_pool_sorted_by_volume_desc_max5(self):
+        """Pool is sorted by volume_usd desc, capped at 5 items."""
+        from core.scan import _build_pool
+        events = [
+            self._make_pool_event(f"Market {i}", prob=0.5, prob_7d=0.4,
+                                  vol=float(10_000 + i * 5_000))
+            for i in range(7)
+        ]
+        adapter = self._pool_adapter(events)
+        pool = _build_pool(adapter, hits_urls=set())
+        assert len(pool) <= 5, "pool must not exceed 5 items"
+        vols = [m["volume_usd"] for m in pool]
+        assert vols == sorted(vols, reverse=True), "pool must be sorted by volume_usd desc"
+
+    def test_pool_null_delta_no_crash(self):
+        """null delta_7d must not crash _build_pool."""
+        from core.scan import _build_pool
+        no_delta = self._make_pool_event("No delta", prob=0.5, prob_7d=None, vol=30000.0)
+        has_delta = self._make_pool_event("Has delta", prob=0.5, prob_7d=0.3, vol=50000.0)
+        adapter = self._pool_adapter([no_delta, has_delta])
+        pool = _build_pool(adapter, hits_urls=set())
+        assert len(pool) == 2, "both events must appear"
+        assert pool[0]["delta_7d"] is not None, "higher volume (has_delta) sorts first"
+        assert pool[1]["delta_7d"] is None, "lower volume (no_delta) sorts last"
+
+    # ---- Bug 3: event-level dedup -----------------------------------------
+
+    def _make_multi_outcome_event(self, title: str, probs: list, vol: float):
+        """Event with multiple markets, each a different outcome / url."""
+        from core.models import Event, Market
+        slug = title[:12].lower().replace(" ", "-")
+        markets = [
+            Market(
+                market_id=f"mkt-{slug}-{i}",
+                outcome_label=f"Country{i}",
+                url=f"https://polymarket.com/event/{slug}/{i}",
+                prob_now=p,
+                prob_7d_ago=p - 0.05,
+            )
+            for i, p in enumerate(probs)
+        ]
+        return Event(event_id=f"evt-{slug}", event_title=title,
+                     markets=markets, volume_usd=vol, end_date="2027-12-31", tags=[])
+
+    def test_pool_dedup_same_event_one_entry(self):
+        """Single Event with 5 eligible outcomes → pool gets exactly 1 entry."""
+        from core.scan import _build_pool
+        event = self._make_multi_outcome_event(
+            "World Cup Winner",
+            probs=[0.35, 0.25, 0.15, 0.12, 0.08],
+            vol=3_000_000.0,
+        )
+        adapter = self._pool_adapter([event])
+        pool = _build_pool(adapter, hits_urls=set())
+        assert len(pool) == 1, (
+            f"One event with 5 outcomes must yield 1 pool entry, got {len(pool)}"
+        )
+
+    def test_pool_dedup_picks_max_prob_outcome(self):
+        """Pool selects the outcome with highest prob_now as event representative."""
+        from core.scan import _build_pool
+        event = self._make_multi_outcome_event(
+            "World Cup Winner",
+            probs=[0.08, 0.25, 0.35, 0.15, 0.12],
+            vol=3_000_000.0,
+        )
+        adapter = self._pool_adapter([event])
+        pool = _build_pool(adapter, hits_urls=set())
+        assert len(pool) == 1
+        assert pool[0]["prob_now"] == 0.35, (
+            f"Leader (prob=0.35) must be the representative; got {pool[0]['prob_now']}"
+        )
+        assert pool[0]["outcome_label"] == "Country2", (
+            f"Expected Country2 (prob=0.35), got {pool[0]['outcome_label']!r}"
+        )
+
+    def test_pool_excludes_empty_url_candidates(self):
+        """Markets with url='' must be excluded from pool (defensive URL guard)."""
+        from core.scan import _build_pool
+        from core.models import Event, Market
+        m_empty = Market("mkt-empty", "Yes", "", 0.5, prob_7d_ago=0.4)
+        event = Event("evt-empty", "Empty URL market", [m_empty], volume_usd=50_000.0,
+                      end_date="2027-12-31", tags=[])
+        adapter = self._pool_adapter([event])
+        pool = _build_pool(adapter, hits_urls=set())
+        assert pool == [], "url='' must be excluded from pool"
+
+
+# ---------------------------------------------------------------------------
+# Adapter bulk path — Bug 1: URL from event slug
+# ---------------------------------------------------------------------------
+
+class TestAdapterBulkBugFix:
+    """Bug 1: /events (bulk) markets have url=''; URL must be built from event slug."""
+
+    def test_parse_event_url_from_slug(self):
+        """_parse_event: market with url='' gets URL built from event slug."""
+        from core.adapter_polymarket import _parse_event
+        raw = {
+            "id": "999",
+            "title": "World Cup 2026 Winner",
+            "slug": "world-cup-2026-winner",
+            "volume": "100000",
+            "endDate": "2026-07-20T00:00:00Z",
+            "tags": [],
+            "markets": [{
+                "conditionId": "0xabc",
+                "question": "Will France win?",
+                "outcomePrices": '["0.35", "0.65"]',
+                "url": "",
+                "groupItemTitle": "France",
+            }],
+        }
+        event = _parse_event(raw)
+        assert event is not None
+        assert len(event.markets) == 1
+        assert event.markets[0].url == "https://polymarket.com/event/world-cup-2026-winner", (
+            f"URL must be built from slug; got {event.markets[0].url!r}"
+        )
+
+    def test_parse_event_explicit_url_takes_precedence(self):
+        """_parse_event: if market.url is already set, do NOT override with event slug."""
+        from core.adapter_polymarket import _parse_event
+        raw = {
+            "id": "998",
+            "title": "Some event",
+            "slug": "some-event",
+            "volume": "50000",
+            "endDate": "2026-07-20T00:00:00Z",
+            "tags": [],
+            "markets": [{
+                "conditionId": "0xdef",
+                "question": "Will X happen?",
+                "outcomePrices": '["0.6", "0.4"]',
+                "url": "https://polymarket.com/market/direct-url",
+                "groupItemTitle": "",
+            }],
+        }
+        event = _parse_event(raw)
+        assert event is not None
+        assert event.markets[0].url == "https://polymarket.com/market/direct-url", (
+            "Explicit market url must not be replaced by event slug url"
+        )
+
+    def test_scan_includes_pool_field(self):
+        """scan() result always contains a 'pool' key (list, possibly empty)."""
+        from core.scan import scan
+        adapter = MagicMock()
+        adapter.public_search.return_value = []
+        adapter.top_by_volume.return_value = []
+        result = scan(watchlist=[], adapter=adapter)
+        assert "pool" in result, "scan result must contain 'pool' field"
+        assert isinstance(result["pool"], list), "pool must be a list"
+
+
 def _load_sample_do_hits() -> dict:
     """Build a do_hits dict from sample.json for digest tests.
 

@@ -77,7 +77,7 @@ def _parse_price(raw: Any) -> float:
         return 0.0
 
 
-def _parse_market(raw: dict) -> Market | None:
+def _parse_market(raw: dict, event_url: str = "") -> Market | None:
     """Parse one Gamma market dict into a Market dataclass.
 
     Each binary market represents one Yes/No outcome.  We take index-0 of
@@ -85,6 +85,8 @@ def _parse_market(raw: dict) -> Market | None:
 
     outcome_label priority: groupItemTitle (short) > question (long form).
     groupItemTitle is "Spain", "France", etc.; question is the full sentence.
+
+    event_url is used as fallback when market.url is absent (bulk /events path).
 
     Returns None if required fields are absent (dropped by caller).
     """
@@ -94,7 +96,7 @@ def _parse_market(raw: dict) -> Market | None:
             return None
 
         question = raw.get("question", "").strip()
-        url = raw.get("url", "") or raw.get("marketUrl", "")
+        url = raw.get("url", "") or raw.get("marketUrl", "") or event_url
         outcome_label = raw.get("groupItemTitle") or question
 
         outcome_prices_raw = raw.get("outcomePrices", "[]")
@@ -124,7 +126,11 @@ def _parse_event(raw: dict) -> Event | None:
             return None
 
         title = raw.get("title", "").strip()
+        slug = raw.get("slug", "")
+        event_url = f"https://polymarket.com/event/{slug}" if slug else ""
+
         volume_raw = raw.get("volume", 0)
+        log.debug("Gamma bulk event %s raw volume: %r", event_id, volume_raw)
         volume_usd = float(volume_raw) if volume_raw else None
         end_date_raw = raw.get("endDate", "")
         end_date = end_date_raw[:10] if end_date_raw else None
@@ -137,7 +143,7 @@ def _parse_event(raw: dict) -> Event | None:
         ]
 
         markets_raw = raw.get("markets", [])
-        markets = [m for m in (_parse_market(mr) for mr in (markets_raw or [])) if m]
+        markets = [m for m in (_parse_market(mr, event_url) for mr in (markets_raw or [])) if m]
 
         return Event(
             event_id=event_id,
@@ -300,6 +306,14 @@ class PolymarketAdapter:
         if not isinstance(events_raw, list):
             return []
         return [e for e in (_parse_event_public_search(r) for r in events_raw) if e]
+
+    def top_by_volume(self, limit: int = 50) -> list[Event]:
+        """Return open events ordered by volume descending. No keyword filter."""
+        data = _http_get(
+            f"{GAMMA_BASE}/events",
+            {"closed": "false", "order": "volume", "ascending": "false", "limit": limit},
+        )
+        return _events_from_response(data)
 
     # CLOB surface — Sprint 3/5 — stubs satisfy the Protocol
     def prices_history(self, market_id: str, since: str) -> list[PricePoint]:
