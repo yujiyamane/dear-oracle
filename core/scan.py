@@ -3,6 +3,10 @@
 Reads the DK Watchlist (from Notion if NOTION_TOKEN is set, else from data/sample.json),
 queries Polymarket for each active topic, and writes do_hits.json atomically to the
 given output path so that DK (GAS) can blend market data into topic cards.
+
+Production output: G:\\My Drive\\DawnPatrol\\do_hits.json
+  (Drive folder 14RNcLAHrDxJ8S-frsiPJsbRXFGiUjGxr — set in config/delivery.json → do_hits_path)
+  NOT data/do_hits.json (local repo copy). Always verify generated_at advanced in the Drive file.
 """
 from __future__ import annotations
 
@@ -221,8 +225,53 @@ def _query_topic(topic: dict, adapter: Any) -> list[dict]:
 
 
 # ---------------------------------------------------------------------------
-# Pool: top-volume Tier B candidates
+# Pool: top-volume Tier B candidates, enriched with 7d movers
 # ---------------------------------------------------------------------------
+
+_POOL_PREFETCH = 10   # candidates to enrich before final mover sort
+MOVER_MIN = 0.0       # abs(delta_7d) floor; set to 0.03 to filter flat markets
+
+
+def _fetch_7d(candidate: dict, adapter: Any) -> dict:
+    """Enrich one pool candidate with delta_7d via public_search.
+
+    Searches by slug (from URL) to get oneWeekPriceChange — same field the
+    search path uses. Matches by event title; falls back to first market that
+    has prob_7d_ago. On any failure returns candidate unchanged so delta stays
+    None (treated as 0 in the mover sort).
+    """
+    url = candidate.get("url", "")
+    slug = url.rstrip("/").rsplit("/", 1)[-1] if url else ""
+    title = candidate.get("title", "")
+    outcome_label = candidate.get("outcome_label", "")
+    prob_now = candidate.get("prob_now", 0.0)
+
+    query = slug.replace("-", " ") if slug else title
+    if not query:
+        return candidate
+
+    try:
+        events = adapter.public_search(query, limit=5)
+        for event in events:
+            if event.event_title != title:
+                continue
+            p7d = None
+            for m in event.markets:
+                if m.outcome_label == outcome_label and m.prob_7d_ago is not None:
+                    p7d = m.prob_7d_ago
+                    break
+            if p7d is None:
+                for m in event.markets:
+                    if m.prob_7d_ago is not None:
+                        p7d = m.prob_7d_ago
+                        break
+            if p7d is not None:
+                return {**candidate, "delta_7d": round(prob_now - p7d, 4)}
+    except Exception as exc:
+        log.debug("_fetch_7d: public_search failed for '%s': %s", title, exc)
+
+    return candidate
+
 
 def _build_pool(
     adapter: Any,
@@ -230,7 +279,7 @@ def _build_pool(
     limit: int = 5,
     min_volume: float = 10_000.0,
 ) -> list[dict]:
-    """Fetch top-volume open markets; filter and sort for DK Tier B pool."""
+    """Top-volume open markets → event dedup → 7d enrichment → mover sort."""
     try:
         events = adapter.top_by_volume(limit=50)
         if not isinstance(events, list):
@@ -278,8 +327,16 @@ def _build_pool(
             "outcome_label": getattr(best_m, "outcome_label", "") or "",
         })
 
+    # Pre-sort by volume; take top-N for 7d enrichment
     candidates.sort(key=lambda x: x["volume_usd"], reverse=True)
-    return candidates[:limit]
+    top_n = candidates[:_POOL_PREFETCH]
+    enriched = [_fetch_7d(c, adapter) for c in top_n]
+
+    if MOVER_MIN > 0.0:
+        enriched = [c for c in enriched if abs(c.get("delta_7d") or 0.0) >= MOVER_MIN]
+
+    enriched.sort(key=lambda x: abs(x.get("delta_7d") or 0.0), reverse=True)
+    return enriched[:limit]
 
 
 # ---------------------------------------------------------------------------

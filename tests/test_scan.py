@@ -1081,6 +1081,141 @@ class TestAdapterBulkBugFix:
         assert isinstance(result["pool"], list), "pool must be a list"
 
 
+# ---------------------------------------------------------------------------
+# E13 — pool movers: 7d enrichment via per-candidate public_search
+# ---------------------------------------------------------------------------
+
+class TestPoolMovers:
+    """Pool mover enrichment: top-N by volume → fetch 7d delta → sort abs(delta) desc."""
+
+    def _bulk_event(self, title: str, prob: float, vol: float):
+        """Event as returned by top_by_volume: no prob_7d_ago (bulk path)."""
+        from core.models import Event, Market
+        slug = title.lower().replace(" ", "-")
+        m = Market(
+            market_id=f"mkt-{slug[:8]}",
+            outcome_label="Yes",
+            url=f"https://polymarket.com/event/{slug}",
+            prob_now=prob,
+            prob_7d_ago=None,
+        )
+        return Event(event_id=f"evt-{slug[:8]}", event_title=title,
+                     markets=[m], volume_usd=vol, end_date="2027-12-31", tags=[])
+
+    def _ps_event(self, title: str, prob_now: float, prob_7d: float):
+        """Event as returned by public_search: prob_7d_ago populated."""
+        from core.models import Event, Market
+        slug = title.lower().replace(" ", "-")
+        m = Market(
+            market_id=f"mkt-ps-{slug[:8]}",
+            outcome_label="Yes",
+            url=f"https://polymarket.com/event/{slug}",
+            prob_now=prob_now,
+            prob_7d_ago=prob_7d,
+        )
+        return Event(event_id=f"evt-ps-{slug[:8]}", event_title=title,
+                     markets=[m], volume_usd=0.0, end_date="2027-12-31", tags=[])
+
+    def _pool_adapter(self, bulk_events, search_fn=None):
+        adapter = MagicMock()
+        adapter.top_by_volume.return_value = bulk_events
+        if search_fn:
+            adapter.public_search.side_effect = search_fn
+        else:
+            adapter.public_search.return_value = []
+        return adapter
+
+    def test_delta_populated_after_enrichment(self):
+        """After 7d fetch, delta_7d is not None for a successfully enriched candidate."""
+        from core.scan import _build_pool
+        bulk = self._bulk_event("World Cup Winner", prob=0.35, vol=3_000_000.0)
+        ps = self._ps_event("World Cup Winner", prob_now=0.35, prob_7d=0.28)
+        adapter = self._pool_adapter([bulk], search_fn=lambda q, limit=5: [ps])
+        pool = _build_pool(adapter, hits_urls=set())
+        assert len(pool) == 1
+        assert pool[0]["delta_7d"] is not None, "delta_7d must be set after 7d enrichment"
+        assert abs(pool[0]["delta_7d"] - 0.07) < 0.001, (
+            f"delta_7d should be ~0.07 (0.35-0.28); got {pool[0]['delta_7d']}"
+        )
+
+    def test_sorted_abs_delta_desc_after_enrichment(self):
+        """Pool is sorted by abs(delta_7d) desc after enrichment (not volume)."""
+        from core.scan import _build_pool
+
+        specs = [
+            ("Alpha Event", 0.40, 200_000.0, 0.35, 0.05),   # delta=+0.05, largest vol
+            ("Beta Event",  0.60, 150_000.0, 0.42, 0.18),   # delta=+0.18, middle vol
+            ("Gamma Event", 0.55, 100_000.0, 0.70, -0.15),  # delta=-0.15, smallest vol
+        ]
+        bulk_events = [self._bulk_event(t, p, v) for t, p, v, _, _ in specs]
+        ps_by_title = {
+            t: self._ps_event(t, p, p7d)
+            for t, p, _, p7d, _ in specs
+        }
+
+        def fake_search(query, limit=5):
+            for title, evt in ps_by_title.items():
+                if title.split()[0].lower() in query.lower():
+                    return [evt]
+            return []
+
+        adapter = self._pool_adapter(bulk_events, search_fn=fake_search)
+        pool = _build_pool(adapter, hits_urls=set())
+
+        assert len(pool) >= 2, "All 3 events should appear in pool"
+        pool_abs_deltas = [abs(p["delta_7d"] or 0.0) for p in pool]
+        assert pool_abs_deltas == sorted(pool_abs_deltas, reverse=True), (
+            f"Pool must be abs(delta_7d) desc after enrichment; got {pool_abs_deltas}"
+        )
+        assert pool[0]["title"] == "Beta Event", (
+            f"Beta (|delta|=0.18) must be first; got {pool[0]['title']!r}"
+        )
+
+    def test_fetch_failure_no_crash_delta_none(self):
+        """If public_search raises during 7d fetch, _build_pool must not crash; delta_7d stays None."""
+        from core.scan import _build_pool
+        bulk = self._bulk_event("Volatile Event", prob=0.5, vol=50_000.0)
+        adapter = self._pool_adapter([bulk],
+                                     search_fn=lambda q, limit=5: (_ for _ in ()).throw(
+                                         Exception("timeout")))
+        pool = _build_pool(adapter, hits_urls=set())
+        assert len(pool) == 1, "Failed enrichment must still include the candidate"
+        assert pool[0]["delta_7d"] is None, (
+            "Enrichment failure → delta_7d stays None (sort key treated as 0)"
+        )
+
+    def test_enrichment_searches_top10_returns_top5(self):
+        """_build_pool enriches up to 10 candidates (by volume), then returns top-5 by abs(delta)."""
+        from core.scan import _build_pool
+
+        big_movers = {"Event C": 0.25, "Event F": 0.20, "Event H": 0.18,
+                      "Event I": 0.15, "Event J": 0.12}
+        bulk_events = [
+            self._bulk_event(f"Event {chr(65+i)}", prob=0.5,
+                             vol=float(2_000_000 - i * 100_000))
+            for i in range(10)
+        ]
+
+        def fake_search(query, limit=5):
+            for title, delta in big_movers.items():
+                expected_q = title.lower().replace(" ", "-").replace("-", " ")
+                if expected_q == query:
+                    return [self._ps_event(title, 0.5, 0.5 - delta)]
+            return []
+
+        adapter = self._pool_adapter(bulk_events, search_fn=fake_search)
+        pool = _build_pool(adapter, hits_urls=set())
+
+        assert len(pool) == 5, f"Pool must be capped at 5; got {len(pool)}"
+        assert pool[0]["title"] == "Event C", (
+            f"Highest-delta (Event C, Δ=0.25) must be first; got {pool[0]['title']!r}"
+        )
+        titles = [p["title"] for p in pool]
+        assert "Event C" in titles and "Event F" in titles, (
+            "Top movers must be in pool"
+        )
+
+
 def _load_sample_do_hits() -> dict:
     """Build a do_hits dict from sample.json for digest tests.
 
