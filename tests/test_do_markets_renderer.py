@@ -543,3 +543,129 @@ class TestM8OutcomeLabel:
         assert "interest rates" in html.lower()
         assert "72%" in html
         assert " — " not in html, "No em-dash when no labels in fixture"
+
+
+# ---------------------------------------------------------------------------
+# M9 — Volume B-tier formatting (P2-2)
+# ---------------------------------------------------------------------------
+
+class TestM9VolumeBTier:
+    """_fmt_vol must format volumes >= 1B as $X.XXB, not $XXXXX.XM."""
+
+    def test_999m_stays_in_m_tier(self):
+        """$999M boundary: 999_000_000 → '$999.0M'."""
+        from core.do_markets_renderer import _fmt_vol
+        assert _fmt_vol(999_000_000) == "$999.0M"
+
+    def test_1b_formats_as_b_tier(self):
+        """Exact 1B threshold: 1_000_000_000 → '$1.00B'."""
+        from core.do_markets_renderer import _fmt_vol
+        assert _fmt_vol(1_000_000_000) == "$1.00B"
+
+    def test_3456m_formats_as_b_tier(self):
+        """Real-world symptom: 3_456_700_000 → '$3.46B', not '$3456.7M'."""
+        from core.do_markets_renderer import _fmt_vol
+        assert _fmt_vol(3_456_700_000) == "$3.46B"
+
+    def test_1218m_formats_as_b_tier(self):
+        """Real-world symptom: 1_218_700_000 → '$1.22B', not '$1218.7M'."""
+        from core.do_markets_renderer import _fmt_vol
+        assert _fmt_vol(1_218_700_000) == "$1.22B"
+
+    def test_b_tier_renders_in_fragment(self):
+        """Fragment with a $3.46B volume must contain '$3.46B' in the HTML output."""
+        from core.do_markets_renderer import render_markets_fragment
+        data = {"hits": {"WL-1": [{
+            "title": "Big market",
+            "url": "https://example.com",
+            "prob_now": 0.55,
+            "delta_7d": 0.10,
+            "volume_usd": 3_456_700_000,
+        }]}}
+        html = render_markets_fragment(data)
+        assert "$3.46B" in html, f"Expected '$3.46B' in fragment, got: {html[:300]}"
+
+
+# ---------------------------------------------------------------------------
+# M10 — Null-baseline delta suppression (P2-1)
+# ---------------------------------------------------------------------------
+
+class TestM10NullBaselineDelta:
+    """delta_7d must be None when prob_7d_ago is 0.0 (new market, zero baseline)."""
+
+    def test_delta_null_when_prob_7d_zero(self):
+        """prob_7d_ago=0.0 must produce delta_7d=None (not +Xpp equal to current prob)."""
+        from core.models import Event, Market
+        from core.scan import _query_topic
+        from unittest.mock import MagicMock
+        m = Market(
+            market_id="mkt-rfk",
+            outcome_label="Yes",
+            url="https://polymarket.com/event/rfk",
+            prob_now=0.49,
+            prob_7d_ago=0.0,
+        )
+        event = Event(
+            event_id="evt-rfk", event_title="RFK wins nomination",
+            markets=[m], volume_usd=500_000, end_date="2026-12-31", tags=[],
+        )
+        adapter = MagicMock()
+        adapter.public_search.return_value = [event]
+        topic = {"topic_key": "WL-99", "topic_label": "RFK",
+                 "keywords": "RFK wins nomination", "lang": ["en-AU"]}
+        result = _query_topic(topic, adapter)
+        assert result, "Should return markets"
+        for m in result:
+            assert m["delta_7d"] is None, (
+                f"delta_7d must be None when prob_7d_ago=0.0 (new market), got {m['delta_7d']}"
+            )
+
+    def test_delta_populated_when_prob_7d_nonzero(self):
+        """prob_7d_ago > 0.0 must still produce a real delta_7d."""
+        from core.models import Event, Market
+        from core.scan import _query_topic
+        from unittest.mock import MagicMock
+        m = Market(
+            market_id="mkt-test",
+            outcome_label="Yes",
+            url="https://polymarket.com/event/test",
+            prob_now=0.60,
+            prob_7d_ago=0.50,
+        )
+        event = Event(
+            event_id="evt-test", event_title="Test event nominal",
+            markets=[m], volume_usd=50_000, end_date="2026-12-31", tags=[],
+        )
+        adapter = MagicMock()
+        adapter.public_search.return_value = [event]
+        topic = {"topic_key": "WL-1", "topic_label": "Test",
+                 "keywords": "Test event nominal", "lang": ["en-AU"]}
+        result = _query_topic(topic, adapter)
+        assert result
+        assert result[0]["delta_7d"] is not None
+        assert abs(result[0]["delta_7d"] - 0.10) < 0.001
+
+    def test_build_pool_null_delta_when_prob_7d_zero(self):
+        """_build_pool: prob_7d_ago=0.0 on bulk event must produce delta_7d=None."""
+        from core.models import Event, Market
+        from core.scan import _build_pool
+        from unittest.mock import MagicMock
+        m = Market(
+            market_id="mkt-bulk",
+            outcome_label="Yes",
+            url="https://polymarket.com/event/bulk",
+            prob_now=0.49,
+            prob_7d_ago=0.0,
+        )
+        event = Event(
+            event_id="evt-bulk", event_title="New market event",
+            markets=[m], volume_usd=500_000, end_date="2026-12-31", tags=[],
+        )
+        adapter = MagicMock()
+        adapter.top_by_volume.return_value = [event]
+        adapter.public_search.return_value = []
+        pool = _build_pool(adapter, hits_urls=set())
+        assert pool, "Should return candidates"
+        assert pool[0]["delta_7d"] is None, (
+            f"delta_7d must be None when prob_7d_ago=0.0, got {pool[0]['delta_7d']}"
+        )

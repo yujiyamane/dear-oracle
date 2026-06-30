@@ -157,6 +157,8 @@ def _fmt_delta(delta: float | None) -> tuple[str, str]:
 def _fmt_vol(vol: float | None) -> str:
     if vol is None:
         return "—"
+    if vol >= 1_000_000_000:
+        return f"${vol / 1_000_000_000:.2f}B"
     if vol >= 1_000_000:
         return f"${vol / 1_000_000:.1f}M"
     if vol >= 1_000:

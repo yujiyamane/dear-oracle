@@ -210,7 +210,7 @@ def _query_topic(topic: dict, adapter: Any) -> list[dict]:
         if prob_now is None:
             continue
         prob_7d = getattr(m, "prob_7d_ago", None)
-        delta_7d = round(prob_now - prob_7d, 4) if prob_7d is not None else None
+        delta_7d = round(prob_now - prob_7d, 4) if (prob_7d is not None and prob_7d > 0.0) else None
         markets.append({
             "title": getattr(best_event, "event_title", ""),
             "url": getattr(m, "url", ""),
@@ -265,7 +265,7 @@ def _fetch_7d(candidate: dict, adapter: Any) -> dict:
                     if m.prob_7d_ago is not None:
                         p7d = m.prob_7d_ago
                         break
-            if p7d is not None:
+            if p7d is not None and p7d > 0.0:
                 return {**candidate, "delta_7d": round(prob_now - p7d, 4)}
     except Exception as exc:
         log.debug("_fetch_7d: public_search failed for '%s': %s", title, exc)
@@ -317,7 +317,7 @@ def _build_pool(
 
         url = getattr(best_m, "url", "")
         prob_7d = getattr(best_m, "prob_7d_ago", None)
-        delta = round(best_p - float(prob_7d), 4) if prob_7d is not None else None
+        delta = round(best_p - float(prob_7d), 4) if (prob_7d is not None and float(prob_7d) > 0.0) else None
         candidates.append({
             "title": getattr(event, "event_title", ""),
             "url": url,
