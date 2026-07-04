@@ -1,16 +1,15 @@
 """tests/test_run_daily_imports.py — smoke test: run_daily.py imports and main() runs end-to-end.
 
-Zero live API or Claude calls: collect, run_letter, and write_interests_atomic are all stubbed.
+Zero live API or Claude calls: collect and write_interests_atomic are stubbed.
+The letter pipeline was retired (2026-07-04) — main() ends after collect.
 """
 from __future__ import annotations
 
 import json
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
-
-CANNED_ENVELOPE = {"html": "<p>x</p>", "plaintext": "a\nb\nc", "fallback": True}
 
 
 def _fake_collect(profile, adapter, db, today, exports_dir=None):
@@ -23,20 +22,19 @@ def _fake_collect(profile, adapter, db, today, exports_dir=None):
         )
 
 
-def _fake_run_letter(signals_path, prompts_dir, exports_dir, db, today, **kwargs):
-    letters_dir = Path(exports_dir) / "letters"
-    letters_dir.mkdir(parents=True, exist_ok=True)
-    (letters_dir / f"{today}.html").write_text("<p>x</p>", encoding="utf-8")
-    (letters_dir / f"{today}.txt").write_text("a\nb\nc", encoding="utf-8")
-    return CANNED_ENVELOPE
+def test_run_daily_has_no_letter_pipeline():
+    import inspect
+
+    from core import run_daily
+
+    src = inspect.getsource(run_daily)
+    assert "run_letter" not in src
+    assert "drive_letters_path" not in src
 
 
 def test_main_smoke(tmp_path, monkeypatch):
-    monkeypatch.setenv("DEAR_ORACLE_DRIVE_PATH", str(tmp_path))
-
     with (
         patch("core.collector.collect", _fake_collect),
-        patch("core.pipeline.run_letter", _fake_run_letter),
         patch("core.onboard.write_interests_atomic"),
     ):
         import core.run_daily as rd

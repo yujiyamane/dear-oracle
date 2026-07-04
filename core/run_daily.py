@@ -33,20 +33,6 @@ if not log.handlers:
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 
-def _drive_path() -> Path | None:
-    """Return Drive sync folder from env var or config/delivery.json."""
-    env = os.environ.get("DEAR_ORACLE_DRIVE_PATH")
-    if env:
-        return Path(env)
-    cfg_file = PROJECT_ROOT / "config" / "delivery.json"
-    if cfg_file.exists():
-        cfg = json.loads(cfg_file.read_text(encoding="utf-8"))
-        raw = cfg.get("drive_letters_path")
-        if raw:
-            return Path(raw)
-    return None
-
-
 def _do_hits_path() -> Path | None:
     """Return do_hits.json output path from env var or config/delivery.json."""
     env = os.environ.get("DEAR_ORACLE_DO_HITS_PATH")
@@ -78,24 +64,6 @@ def _load_profile() -> tuple[dict, Path]:
     return json.loads(interests_path.read_text(encoding="utf-8")), interests_path
 
 
-def _copy_to_drive(drive_dir: Path, today: str) -> bool:
-    """Copy today's html/txt letters to Drive folder; returns True if both land."""
-    letters_dir = PROJECT_ROOT / "data" / "letters"
-    drive_dir.mkdir(parents=True, exist_ok=True)
-    for ext in ("html", "txt"):
-        src = letters_dir / f"{today}.{ext}"
-        if src.exists():
-            shutil.copy2(src, drive_dir / f"{today}.{ext}")
-        else:
-            log.warning("Letter source not found: %s", src)
-    # Dead-man's switch
-    missing = [ext for ext in ("html", "txt") if not (drive_dir / f"{today}.{ext}").exists()]
-    if missing:
-        log.warning("DEAD-MAN: %s not confirmed in Drive folder %s", missing, drive_dir)
-        return False
-    return True
-
-
 # ── Main ──────────────────────────────────────────────────────────────────────
 
 
@@ -106,7 +74,6 @@ def main() -> int:
     from core.adapter_polymarket import PolymarketAdapter
     from core.collector import collect
     from core.onboard import write_interests_atomic
-    from core.pipeline import run_letter
     from core.scan import scan
 
     db = _open_db()
@@ -136,26 +103,6 @@ def main() -> int:
     collect(profile, adapter, db, today, exports_dir=exports_dir)
     write_interests_atomic(profile, interests_path)
     log.info("collect done")
-
-    # Layer 2: letter
-    signals_path = exports_dir / f"{today}.signals.json"
-    log.info("run_letter start (signals: %s)", signals_path.name)
-    result = run_letter(
-        signals_path=signals_path,
-        prompts_dir=PROJECT_ROOT / "prompts",
-        exports_dir=exports_dir,
-        db=db,
-        today=today,
-    )
-    log.info("run_letter done (fallback=%s)", result.get("fallback", False))
-
-    # Drive sync
-    drive_dir = _drive_path()
-    if drive_dir is None:
-        log.warning("No Drive path configured — skipping sync (set DEAR_ORACLE_DRIVE_PATH or delivery.json)")
-    else:
-        ok = _copy_to_drive(drive_dir, today)
-        log.info("Drive sync %s → %s", today, "ok" if ok else "WARN (dead-man triggered)")
 
     db.close()
     log.info("── dear-oracle END %s ──", today)
