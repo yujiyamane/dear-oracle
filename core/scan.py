@@ -21,6 +21,7 @@ from zoneinfo import ZoneInfo
 from pathlib import Path
 from typing import Any
 
+from core.market_history import attach_history, load_prev_history
 from core.market_notes import annotate_pool, build_note, classify_relevance
 
 log = logging.getLogger(__name__)
@@ -407,10 +408,18 @@ def scan(
     pool = _build_pool(adapter, hits_urls)
 
     status = "ok" if errors == 0 else "partial"
+    date_syd = datetime.now(ZoneInfo("Australia/Sydney")).strftime("%Y-%m-%d")
+
+    if out_path is not None:
+        prev, prev_date = load_prev_history(Path(out_path))
+        for markets in hits.values():
+            attach_history(markets, prev, date_syd, prev_date)
+        attach_history(pool, prev, date_syd, prev_date)
+
     result = {
         "meta": {
             "generated_at": datetime.now(timezone.utc).isoformat(),
-            "date_syd": datetime.now(ZoneInfo("Australia/Sydney")).strftime("%Y-%m-%d"),
+            "date_syd": date_syd,
             "status": status,
             "topics_queried": len(watchlist),
             "topics_with_hits": len(hits),
