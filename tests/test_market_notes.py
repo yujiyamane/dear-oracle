@@ -51,6 +51,30 @@ def test_annotate_pool_adds_fields_and_sorts():
     assert pool[0].get("note") is None
 
 
+def test_topic_hits_are_annotated():
+    from core import scan as scan_mod
+
+    class _M:
+        url = "https://polymarket.com/event/rba-august/m1"
+        prob_now = 0.88
+        prob_7d_ago = 0.87
+        outcome_label = "No change"
+
+    class _E:
+        event_title = "Reserve Bank of Australia Decision in August"
+        volume_usd = 50_000.0
+        markets = [_M()]
+
+    class _Adapter:
+        def public_search(self, q, limit=10):
+            return [_E()]
+
+    topic = {"keywords": "reserve bank australia", "topic_label": "RBA rates", "wl_id": "WL-5"}
+    markets = scan_mod._query_topic(topic, _Adapter())
+    assert markets and markets[0]["relevance"] == "rba"
+    assert "note" in markets[0]
+
+
 def test_build_pool_returns_annotated(monkeypatch):
     from core import scan as scan_mod
 

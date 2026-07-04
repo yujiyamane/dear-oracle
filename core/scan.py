@@ -21,7 +21,7 @@ from zoneinfo import ZoneInfo
 from pathlib import Path
 from typing import Any
 
-from core.market_notes import annotate_pool
+from core.market_notes import annotate_pool, build_note, classify_relevance
 
 log = logging.getLogger(__name__)
 
@@ -223,7 +223,11 @@ def _query_topic(topic: dict, adapter: Any) -> list[dict]:
         })
 
     markets.sort(key=lambda x: x["prob_now"], reverse=True)
-    return markets[:3]
+    markets = markets[:3]
+    for m in markets:
+        m["relevance"] = classify_relevance(m.get("title", ""))
+        m["note"] = build_note(m)
+    return markets
 
 
 # ---------------------------------------------------------------------------
