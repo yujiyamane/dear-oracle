@@ -18,7 +18,7 @@ Configured in `config/delivery.json` → `do_hits_path` / `drive_letters_path`.
 ## Running scan manually
 
 ```powershell
-cd C:\Users\Admin\Documents\Life\repos\dear-oracle
+cd C:\Users\Admin\Documents\Life\05_systems\dear-oracle
 python -c "
 from pathlib import Path; from core.scan import scan
 result = scan(out_path=Path('G:/My Drive/DawnPatrol/do_hits.json'))

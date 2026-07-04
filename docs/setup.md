@@ -47,7 +47,7 @@ The `scripts/` directory contains ready-made wrappers:
 
 **Task name:** `DearOracle-Daily`  
 **Trigger:** daily at 04:30 local time (AEST), `StartWhenAvailable`, `WakeToRun`  
-**Action:** `wscript.exe "C:\Users\Admin\Documents\Life\repos\dear-oracle\scripts\run_daily_hidden.vbs"`  
+**Action:** `wscript.exe "C:\Users\Admin\Documents\Life\05_systems\dear-oracle\scripts\run_daily_hidden.vbs"`  
 **Log:** `data/logs/dear-oracle.log`
 
 The scan step (DK Watchlist → Polymarket → `do_hits.json`) runs first inside `run_daily.py`, so `do_hits.json` lands on Drive before DK's GAS trigger fires at ~05:13.
@@ -75,7 +75,7 @@ $xml = @'
   <Actions>
     <Exec>
       <Command>wscript.exe</Command>
-      <Arguments>"C:\Users\Admin\Documents\Life\repos\dear-oracle\scripts\run_daily_hidden.vbs"</Arguments>
+      <Arguments>"C:\Users\Admin\Documents\Life\05_systems\dear-oracle\scripts\run_daily_hidden.vbs"</Arguments>
     </Exec>
   </Actions>
 </Task>

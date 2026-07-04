@@ -22,7 +22,7 @@
 
 ---
 
-## Part 1 — dear-oracle (Python), repo `C:\Users\Admin\Documents\Life\repos\dear-oracle`
+## Part 1 — dear-oracle (Python), repo `C:\Users\Admin\Documents\Life\05_systems\dear-oracle`
 
 ### Task 1: Market note annotator module
 
