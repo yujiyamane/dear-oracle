@@ -21,6 +21,8 @@ from zoneinfo import ZoneInfo
 from pathlib import Path
 from typing import Any
 
+from core.market_notes import annotate_pool
+
 log = logging.getLogger(__name__)
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -336,7 +338,7 @@ def _build_pool(
         enriched = [c for c in enriched if abs(c.get("delta_7d") or 0.0) >= MOVER_MIN]
 
     enriched.sort(key=lambda x: abs(x.get("delta_7d") or 0.0), reverse=True)
-    return enriched[:limit]
+    return annotate_pool(enriched[:limit])
 
 
 # ---------------------------------------------------------------------------

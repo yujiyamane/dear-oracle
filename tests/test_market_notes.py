@@ -49,3 +49,29 @@ def test_annotate_pool_adds_fields_and_sorts():
     assert out[1]["relevance"] == "none"
     assert all("note" in m and "relevance" in m for m in out)
     assert pool[0].get("note") is None
+
+
+def test_build_pool_returns_annotated(monkeypatch):
+    from core import scan as scan_mod
+
+    class _M:
+        url = "https://polymarket.com/event/rba-august/m1"
+        prob_now = 0.88
+        prob_7d_ago = 0.87
+        outcome_label = "No change"
+
+    class _E:
+        event_title = "Reserve Bank of Australia Decision in August"
+        volume_usd = 50_000.0
+        markets = [_M()]
+
+    class _Adapter:
+        def top_by_volume(self, limit=50):
+            return [_E()]
+
+        def public_search(self, q, limit=5):
+            return [_E()]
+
+    pool = scan_mod._build_pool(_Adapter(), hits_urls=set())
+    assert pool[0]["relevance"] == "rba"
+    assert "note" in pool[0]
