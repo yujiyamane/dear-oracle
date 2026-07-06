@@ -243,9 +243,11 @@ def _fetch_7d(candidate: dict, adapter: Any) -> dict:
     """Enrich one pool candidate with delta_7d via public_search.
 
     Searches by slug (from URL) to get oneWeekPriceChange — same field the
-    search path uses. Matches by event title; falls back to first market that
-    has prob_7d_ago. On any failure returns candidate unchanged so delta stays
-    None (treated as 0 in the mover sort).
+    search path uses. Matches by event title AND outcome_label; a baseline
+    from a different outcome must never be borrowed (it computes a delta for
+    the wrong side of the market). On any failure, or if the matching outcome
+    has no baseline, returns candidate unchanged so delta stays None (treated
+    as 0 in the mover sort).
     """
     url = candidate.get("url", "")
     slug = url.rstrip("/").rsplit("/", 1)[-1] if url else ""
@@ -267,11 +269,6 @@ def _fetch_7d(candidate: dict, adapter: Any) -> dict:
                 if m.outcome_label == outcome_label and m.prob_7d_ago is not None:
                     p7d = m.prob_7d_ago
                     break
-            if p7d is None:
-                for m in event.markets:
-                    if m.prob_7d_ago is not None:
-                        p7d = m.prob_7d_ago
-                        break
             if p7d is not None and p7d > 0.0:
                 return {**candidate, "delta_7d": round(prob_now - p7d, 4)}
     except Exception as exc:

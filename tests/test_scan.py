@@ -1216,6 +1216,83 @@ class TestPoolMovers:
         )
 
 
+class TestFetch7dOutcomeBaseline:
+    """_fetch_7d must match baseline to the SAME outcome, not fall back to any
+    market in the event (bug: RFK "45% +47pp" from a different outcome's baseline)."""
+
+    def _event_multi_outcome(self, title: str, outcomes: list) -> "object":
+        """outcomes: list of (outcome_label, prob_7d_ago) tuples."""
+        from core.models import Event, Market
+        slug = title.lower().replace(" ", "-")
+        markets = [
+            Market(
+                market_id=f"mkt-{slug[:8]}-{label}",
+                outcome_label=label,
+                url=f"https://polymarket.com/event/{slug}",
+                prob_now=0.5,
+                prob_7d_ago=p7d,
+            )
+            for label, p7d in outcomes
+        ]
+        return Event(event_id=f"evt-{slug[:8]}", event_title=title,
+                     markets=markets, volume_usd=100_000.0, end_date="2027-12-31", tags=[])
+
+    def test_matching_outcome_baseline_used(self):
+        """When the candidate's own outcome has a baseline, use it."""
+        from core.scan import _fetch_7d
+        event = self._event_multi_outcome(
+            "RFK Chairman", [("RFK Jr", 0.30), ("Other", 0.60)])
+        candidate = {
+            "title": "RFK Chairman", "url": "https://polymarket.com/event/rfk-chairman",
+            "outcome_label": "RFK Jr", "prob_now": 0.45,
+        }
+        adapter = _mock_adapter([event])
+        result = _fetch_7d(candidate, adapter)
+        assert result["delta_7d"] is not None
+        assert abs(result["delta_7d"] - round(0.45 - 0.30, 4)) < 0.001, (
+            f"delta_7d must be computed from the matching outcome's baseline (0.30); got {result['delta_7d']}"
+        )
+
+    def test_missing_own_outcome_baseline_emits_no_delta(self):
+        """When the candidate's own outcome has no baseline, do NOT fall back to
+        another outcome's baseline — delta_7d must stay absent/None."""
+        from core.scan import _fetch_7d
+        event = self._event_multi_outcome(
+            "RFK Chairman", [("RFK Jr", None), ("Other", 0.60)])
+        candidate = {
+            "title": "RFK Chairman", "url": "https://polymarket.com/event/rfk-chairman",
+            "outcome_label": "RFK Jr", "prob_now": 0.45,
+        }
+        adapter = _mock_adapter([event])
+        result = _fetch_7d(candidate, adapter)
+        assert result.get("delta_7d") is None, (
+            "Must not borrow another outcome's baseline (0.60) — "
+            f"got delta_7d={result.get('delta_7d')}"
+        )
+
+    def test_multi_outcome_market_picks_correct_baseline_per_candidate(self):
+        """Two candidates on the same event but different outcomes each get their
+        own outcome's baseline, not each other's."""
+        from core.scan import _fetch_7d
+        event = self._event_multi_outcome(
+            "Election Winner", [("Alice", 0.20), ("Bob", 0.55)])
+        adapter = _mock_adapter([event])
+
+        cand_alice = {
+            "title": "Election Winner", "url": "https://polymarket.com/event/election-winner",
+            "outcome_label": "Alice", "prob_now": 0.25,
+        }
+        cand_bob = {
+            "title": "Election Winner", "url": "https://polymarket.com/event/election-winner",
+            "outcome_label": "Bob", "prob_now": 0.50,
+        }
+        result_alice = _fetch_7d(cand_alice, adapter)
+        result_bob = _fetch_7d(cand_bob, adapter)
+
+        assert abs(result_alice["delta_7d"] - round(0.25 - 0.20, 4)) < 0.001
+        assert abs(result_bob["delta_7d"] - round(0.50 - 0.55, 4)) < 0.001
+
+
 def _load_sample_do_hits() -> dict:
     """Build a do_hits dict from sample.json for digest tests.
 
