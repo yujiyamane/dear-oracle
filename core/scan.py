@@ -344,6 +344,65 @@ def _build_pool(
 
 
 # ---------------------------------------------------------------------------
+# Top volume: top-N open markets by volume_usd, event dedup only (no
+# hits_urls exclusion, no min_volume floor, no 7d re-fetch — independent of pool)
+# ---------------------------------------------------------------------------
+
+def _build_top_volume(adapter: Any, limit: int = 10) -> list[dict]:
+    """Top-volume open markets → event dedup → volume desc, capped at limit.
+
+    Independent of _build_pool: no hits_urls exclusion, no min_volume filter,
+    no separate 7d-delta fetch (delta_7d comes straight from prob_7d_ago on
+    the same market chosen as the event's representative).
+    """
+    try:
+        events = adapter.top_by_volume(limit=50)
+        if not isinstance(events, list):
+            return []
+    except Exception as exc:
+        log.warning("_build_top_volume: top_by_volume failed: %s", exc)
+        return []
+
+    candidates = []
+    for event in events:
+        vol = getattr(event, "volume_usd", None) or 0.0
+
+        best_p: float = -1.0
+        best_m = None
+        for m in getattr(event, "markets", []):
+            p = getattr(m, "prob_now", None)
+            if p is None:
+                continue
+            p = float(p)
+            if not (0.01 < p < 0.99):
+                continue
+            url = getattr(m, "url", "") or ""
+            if not url:
+                continue
+            if p > best_p:
+                best_p = p
+                best_m = m
+
+        if best_m is None:
+            continue
+
+        url = getattr(best_m, "url", "")
+        prob_7d = getattr(best_m, "prob_7d_ago", None)
+        delta = round(best_p - float(prob_7d), 4) if (prob_7d is not None and float(prob_7d) > 0.0) else None
+        candidates.append({
+            "title": getattr(event, "event_title", ""),
+            "url": url,
+            "prob_now": round(best_p, 4),
+            "delta_7d": delta,
+            "volume_usd": vol,
+            "outcome_label": getattr(best_m, "outcome_label", "") or "",
+        })
+
+    candidates.sort(key=lambda x: x["volume_usd"], reverse=True)
+    return candidates[:limit]
+
+
+# ---------------------------------------------------------------------------
 # Main scan
 # ---------------------------------------------------------------------------
 
@@ -403,6 +462,7 @@ def scan(
 
     hits_urls: set = {m["url"] for markets in hits.values() for m in markets if m.get("url")}
     pool = _build_pool(adapter, hits_urls)
+    top_volume = _build_top_volume(adapter)
 
     status = "ok" if errors == 0 else "partial"
     date_syd = datetime.now(ZoneInfo("Australia/Sydney")).strftime("%Y-%m-%d")
@@ -423,6 +483,7 @@ def scan(
         },
         "hits": hits,
         "pool": pool,
+        "top_volume": top_volume,
     }
 
     if out_path is not None:

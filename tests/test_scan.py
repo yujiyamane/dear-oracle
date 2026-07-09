@@ -1080,6 +1080,18 @@ class TestAdapterBulkBugFix:
         assert "pool" in result, "scan result must contain 'pool' field"
         assert isinstance(result["pool"], list), "pool must be a list"
 
+    def test_scan_includes_top_volume_field(self):
+        """scan() result contains 'top_volume' AND 'pool' — pool untouched."""
+        from core.scan import scan
+        adapter = MagicMock()
+        adapter.public_search.return_value = []
+        adapter.top_by_volume.return_value = []
+        result = scan(watchlist=[], adapter=adapter)
+        assert "top_volume" in result, "scan result must contain 'top_volume' field"
+        assert isinstance(result["top_volume"], list), "top_volume must be a list"
+        assert "pool" in result, "scan result must still contain 'pool' field"
+        assert isinstance(result["pool"], list), "pool must still be a list"
+
 
 # ---------------------------------------------------------------------------
 # E13 — pool movers: 7d enrichment via per-candidate public_search
@@ -1291,6 +1303,121 @@ class TestFetch7dOutcomeBaseline:
 
         assert abs(result_alice["delta_7d"] - round(0.25 - 0.20, 4)) < 0.001
         assert abs(result_bob["delta_7d"] - round(0.50 - 0.55, 4)) < 0.001
+
+
+class TestTopVolume:
+    """top_volume: top-10 open markets by volume, event-level dedup, no hits/min-volume filter."""
+
+    def _make_event(self, title: str, prob: float, prob_7d, vol: float, url: str = ""):
+        from core.models import Event, Market
+        u = url or f"https://polymarket.com/event/{title[:12].lower().replace(' ', '-')}"
+        m = Market(
+            market_id=f"mkt-tv-{title[:6]}",
+            outcome_label="Yes",
+            url=u,
+            prob_now=prob,
+            prob_7d_ago=prob_7d,
+        )
+        return Event(event_id=f"evt-tv-{title[:6]}", event_title=title,
+                     markets=[m], volume_usd=vol, end_date="2027-12-31", tags=[])
+
+    def _make_multi_outcome_event(self, title: str, probs: list, vol: float):
+        from core.models import Event, Market
+        slug = title[:12].lower().replace(" ", "-")
+        markets = [
+            Market(
+                market_id=f"mkt-tv-{slug}-{i}",
+                outcome_label=f"Country{i}",
+                url=f"https://polymarket.com/event/{slug}/{i}",
+                prob_now=p,
+                prob_7d_ago=p - 0.05,
+            )
+            for i, p in enumerate(probs)
+        ]
+        return Event(event_id=f"evt-tv-{slug}", event_title=title,
+                     markets=markets, volume_usd=vol, end_date="2027-12-31", tags=[])
+
+    def _adapter(self, events):
+        adapter = MagicMock()
+        adapter.public_search.return_value = []
+        adapter.top_by_volume.return_value = events
+        return adapter
+
+    def test_sorted_by_volume_desc(self):
+        """top_volume is sorted by volume_usd descending."""
+        from core.scan import _build_top_volume
+        events = [
+            self._make_event("Market A", prob=0.5, prob_7d=0.4, vol=10_000.0),
+            self._make_event("Market B", prob=0.5, prob_7d=0.4, vol=90_000.0),
+            self._make_event("Market C", prob=0.5, prob_7d=0.4, vol=50_000.0),
+        ]
+        adapter = self._adapter(events)
+        top_volume = _build_top_volume(adapter)
+        vols = [m["volume_usd"] for m in top_volume]
+        assert vols == sorted(vols, reverse=True), "top_volume must be sorted by volume_usd desc"
+        assert vols[0] == 90_000.0
+
+    def test_event_level_dedup(self):
+        """Two markets on the same event → only the best (highest prob_now) appears."""
+        from core.scan import _build_top_volume
+        event = self._make_multi_outcome_event(
+            "World Cup Winner",
+            probs=[0.08, 0.25, 0.35, 0.15, 0.12],
+            vol=3_000_000.0,
+        )
+        adapter = self._adapter([event])
+        top_volume = _build_top_volume(adapter)
+        assert len(top_volume) == 1, f"One event must yield 1 entry, got {len(top_volume)}"
+        assert top_volume[0]["prob_now"] == 0.35
+        assert top_volume[0]["outcome_label"] == "Country2"
+
+    def test_capped_at_10(self):
+        """More than 10 distinct-event candidates → only 10 entries returned."""
+        from core.scan import _build_top_volume
+        events = [
+            self._make_event(f"Market {i}", prob=0.5, prob_7d=0.4,
+                              vol=float(10_000 + i * 1_000))
+            for i in range(15)
+        ]
+        adapter = self._adapter(events)
+        top_volume = _build_top_volume(adapter)
+        assert len(top_volume) == 10, f"top_volume must be capped at 10, got {len(top_volume)}"
+
+    def test_field_shape(self):
+        """Each entry has exactly title, url, outcome_label, prob_now, delta_7d, volume_usd."""
+        from core.scan import _build_top_volume
+        event = self._make_event("Solo Market", prob=0.6, prob_7d=0.5, vol=25_000.0)
+        adapter = self._adapter([event])
+        top_volume = _build_top_volume(adapter)
+        assert len(top_volume) == 1
+        expected_keys = {"title", "url", "outcome_label", "prob_now", "delta_7d", "volume_usd"}
+        assert set(top_volume[0].keys()) == expected_keys, (
+            f"Unexpected keys: {set(top_volume[0].keys())}"
+        )
+
+    def test_empty_scan_universe_returns_empty_list(self):
+        """No events from top_by_volume → top_volume is [] (not missing/None)."""
+        from core.scan import _build_top_volume
+        adapter = self._adapter([])
+        top_volume = _build_top_volume(adapter)
+        assert top_volume == []
+
+    def test_no_min_volume_filter(self):
+        """Unlike pool, top_volume has no min_volume floor — low-volume events are included."""
+        from core.scan import _build_top_volume
+        event = self._make_event("Tiny market", prob=0.5, prob_7d=0.4, vol=100.0)
+        adapter = self._adapter([event])
+        top_volume = _build_top_volume(adapter)
+        assert len(top_volume) == 1, "low-volume events must not be filtered out"
+
+    def test_no_hits_urls_exclusion(self):
+        """Unlike pool, top_volume ignores hits_urls — no such parameter/exclusion."""
+        from core.scan import _build_top_volume
+        shared = "https://polymarket.com/event/shared-market"
+        event = self._make_event("Shared market", prob=0.5, prob_7d=0.4, vol=50_000.0, url=shared)
+        adapter = self._adapter([event])
+        top_volume = _build_top_volume(adapter)
+        assert len(top_volume) == 1, "top_volume must not exclude urls present in hits"
 
 
 def _load_sample_do_hits() -> dict:
