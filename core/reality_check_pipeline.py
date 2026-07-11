@@ -194,7 +194,11 @@ def _cli() -> int:
     parser.add_argument("--output", required=True, help="Path to write do_hits_v2.json")
     args = parser.parse_args()
 
-    news_items = json.loads(Path(args.input).read_text(encoding="utf-8"))
+    # utf-8-sig tolerates a leading BOM (found via live E2E dry run: a
+    # PowerShell caller writing via System.Text.Encoding.UTF8 emits one, which
+    # plain "utf-8" rejects outright) while still reading a plain BOM-less
+    # file identically.
+    news_items = json.loads(Path(args.input).read_text(encoding="utf-8-sig"))
     if isinstance(news_items, dict):
         news_items = news_items.get("news_items", [])
 
