@@ -188,3 +188,28 @@ def test_run_reality_check_writes_output_file(tmp_path):
     assert out_path.exists()
     on_disk = json.loads(out_path.read_text(encoding="utf-8"))
     assert on_disk == result
+
+
+def test_run_reality_check_picks_highest_probability_market_from_multi_outcome_event():
+    # Regression (found via live E2E dry run against a real Strait-of-Hormuz
+    # market): a multi-outcome event's markets[0] can be a stale/already-
+    # resolved dated slice reading ~0% -- the representative outcome must be
+    # the highest-probability one, not simply the first in the list.
+    stale_past_dated = Market(market_id="m-old", outcome_label="June 30", url="https://pm.com/old", prob_now=0.0)
+    current_likely = Market(market_id="m-current", outcome_label="July 31", url="https://pm.com/current", prob_now=0.62)
+    event = Event(
+        event_id="multi1", event_title="Multi-outcome event",
+        markets=[stale_past_dated, current_likely],
+        volume_usd=50_000.0, liquidity_usd=20_000.0, end_date="2026-08-01",
+        active=True, closed=False,
+    )
+    news_items = [{"id": "news-multi", "title": "Story", "headlines": []}]
+    adapter = _FakeAdapter({"q1": [event]})
+    # veto dispatch matches on a substring of the prompt, which embeds the
+    # candidate's event_title (not event_id) -- see core/veto_gate.py's prompt.
+    call_claude = _make_call_claude({"Story": ["q1"]}, {"Multi-outcome event": (True, "ok")})
+
+    result = run_reality_check(news_items, adapter=adapter, call_claude=call_claude, today="2026-07-11")
+    hit = result["hits_v2"]["news-multi"][0]
+    assert hit["outcome_label"] == "July 31", "must pick the higher-probability outcome, not markets[0]"
+    assert hit["prob_now"] == 0.62

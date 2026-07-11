@@ -19,9 +19,9 @@ from __future__ import annotations
 
 import json
 import logging
-import subprocess
 from typing import Callable
 
+from core._claude_cli import call_claude_cli
 from core.models import Event
 
 log = logging.getLogger(__name__)
@@ -33,14 +33,7 @@ _TIMEOUT_SECONDS = 30
 
 
 def _real_call_claude(prompt: str, model: str) -> str:
-    result = subprocess.run(
-        ["claude", "-p", "--model", model],
-        input=prompt,
-        capture_output=True,
-        text=True,
-        timeout=_TIMEOUT_SECONDS,
-    )
-    return result.stdout
+    return call_claude_cli(prompt, model, _TIMEOUT_SECONDS)
 
 
 def _build_prompt(news_item: dict, candidate_event: Event) -> str:

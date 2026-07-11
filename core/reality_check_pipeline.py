@@ -46,13 +46,19 @@ __all__ = ["run_reality_check"]
 
 
 def _hit_from_event(source_news_id: str, event: Event) -> RealityCheckHit | None:
-    """Build a RealityCheckHit from an Event, choosing its first market as the
-    representative outcome. Returns None (skip, log) if the event has no
-    markets — this must never crash the pipeline."""
-    if not event.markets:
-        log.warning("reality_check_pipeline: event %s has no markets — skipped", event.event_id)
+    """Build a RealityCheckHit from an Event, choosing the highest-probability
+    market as the representative outcome (mirrors core.scan.py's existing
+    convention for multi-outcome events). Picking markets[0] instead would
+    often surface a stale/already-resolved dated outcome (e.g. a past-dated
+    slice of a recurring multi-outcome market reading ~0%) rather than the
+    current, meaningful odds -- caught via a live E2E dry run against a real
+    Strait-of-Hormuz market. Returns None (skip, log) if the event has no
+    markets with a usable prob_now — this must never crash the pipeline."""
+    usable = [m for m in event.markets if m.prob_now is not None]
+    if not usable:
+        log.warning("reality_check_pipeline: event %s has no markets with prob_now — skipped", event.event_id)
         return None
-    market = event.markets[0]
+    market = max(usable, key=lambda m: m.prob_now)
     return RealityCheckHit(
         source_news_id=source_news_id,
         event_id=event.event_id,
