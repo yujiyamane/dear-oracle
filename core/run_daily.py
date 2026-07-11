@@ -88,15 +88,9 @@ def main() -> int:
     do_hits_result = scan(adapter=adapter, out_path=do_hits_out, notion_token=os.environ.get("NOTION_TOKEN"))
     log.info("scan done (output=%s)", do_hits_out or "none")
 
-    # Render deterministic markets fragment alongside do_hits.json → do_markets.html
-    if do_hits_out is not None:
-        from core.do_markets_renderer import write_markets_fragment
-        markets_out = do_hits_out.parent / "do_markets.html"
-        try:
-            write_markets_fragment(do_hits_result, markets_out)
-            log.info("do_markets.html written to %s", markets_out)
-        except Exception as exc:
-            log.warning("do_markets.html render failed (non-fatal): %s", exc)
+    # do_markets.html generation retired (dk-do-v2-PLAN.md DO-V2-1): the
+    # renderer was unreachable from any live DK/DP page -- archived to
+    # 99_archive/legacy_watchlist_scan/.
 
     # Layer 1: collect
     log.info("collect start")
