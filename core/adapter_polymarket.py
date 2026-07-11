@@ -238,6 +238,11 @@ def _parse_event_public_search(raw: dict) -> Event | None:
             if m
         ]
 
+        liquidity_raw = raw.get("liquidity")
+        liquidity_usd = float(liquidity_raw) if liquidity_raw is not None else None
+        volume_24hr_raw = raw.get("volume24hr")
+        volume_24hr_usd = float(volume_24hr_raw) if volume_24hr_raw is not None else None
+
         return Event(
             event_id=event_id,
             event_title=title,
@@ -245,6 +250,10 @@ def _parse_event_public_search(raw: dict) -> Event | None:
             volume_usd=volume_usd,
             end_date=end_date,
             tags=tags,
+            active=raw.get("active"),
+            closed=raw.get("closed"),
+            liquidity_usd=liquidity_usd,
+            volume_24hr_usd=volume_24hr_usd,
         )
     except Exception as exc:
         log.debug("Failed to parse public-search event: %s", exc)

@@ -50,6 +50,11 @@ class Event:
     volume_usd: float | None = None
     end_date: str | None = None
     tags: list[Tag] = field(default_factory=list)
+    # DO v2 hard-filter fields (Gamma /public-search): active/closed/liquidity/24hr volume.
+    active: bool | None = None
+    closed: bool | None = None
+    liquidity_usd: float | None = None
+    volume_24hr_usd: float | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -209,6 +214,62 @@ class Standing:
             "interest_tag": self.interest_tag,
             "is_binary": self.is_binary,
             "top_outcomes": [o.to_dict() for o in self.top_outcomes],
+        }
+
+
+# ---------------------------------------------------------------------------
+# DO v2 — do_hits.json schema v2 (reality-check blocks, inline under DK news)
+# ---------------------------------------------------------------------------
+
+@dataclass
+class RealityCheckHit:
+    """One market attached to a DK news item. source_news_id is required —
+    an entry without it is a bug (no orphan markets, dk-do-v2-PLAN.md §DO-V2-3).
+    """
+    source_news_id: str
+    event_id: str
+    event_title: str
+    market_id: str
+    outcome_label: str
+    url: str
+    prob_now: float
+    delta_24h_pp: float | None
+    delta_7d_pp: float | None
+    volume_usd: float
+    liquidity_usd: float
+    end_date: str | None
+
+    @classmethod
+    def from_dict(cls, d: dict[str, Any]) -> RealityCheckHit:
+        return cls(
+            source_news_id=d["source_news_id"],
+            event_id=d["event_id"],
+            event_title=d["event_title"],
+            market_id=d["market_id"],
+            outcome_label=d["outcome_label"],
+            url=d["url"],
+            prob_now=d["prob_now"],
+            delta_24h_pp=d.get("delta_24h_pp"),
+            delta_7d_pp=d.get("delta_7d_pp"),
+            volume_usd=d["volume_usd"],
+            liquidity_usd=d["liquidity_usd"],
+            end_date=d.get("end_date"),
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "source_news_id": self.source_news_id,
+            "event_id": self.event_id,
+            "event_title": self.event_title,
+            "market_id": self.market_id,
+            "outcome_label": self.outcome_label,
+            "url": self.url,
+            "prob_now": self.prob_now,
+            "delta_24h_pp": self.delta_24h_pp,
+            "delta_7d_pp": self.delta_7d_pp,
+            "volume_usd": self.volume_usd,
+            "liquidity_usd": self.liquidity_usd,
+            "end_date": self.end_date,
         }
 
 
