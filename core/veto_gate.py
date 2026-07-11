@@ -29,7 +29,7 @@ log = logging.getLogger(__name__)
 __all__ = ["veto_check"]
 
 _MODEL = "claude-haiku-4-5-20251001"
-_TIMEOUT_SECONDS = 30
+_TIMEOUT_SECONDS = 45  # bumped from 30 -- a real timeout occurred under concurrent load in a live dry run
 
 
 def _real_call_claude(prompt: str, model: str) -> str:

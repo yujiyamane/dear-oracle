@@ -36,7 +36,7 @@ log = logging.getLogger(__name__)
 __all__ = ["synthesize_so_what_then_what"]
 
 _MODEL = "claude-sonnet-4-6"
-_TIMEOUT_SECONDS = 30
+_TIMEOUT_SECONDS = 45  # bumped from 30 -- a real timeout occurred under concurrent load in a live dry run
 
 _EMPTY = ("", "")
 
