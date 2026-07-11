@@ -238,6 +238,13 @@ class RealityCheckHit:
     volume_usd: float
     liquidity_usd: float
     end_date: str | None
+    # DO v2 Phase 3 fields (dk-do-v2-PLAN.md DO-V2-2/DO-V2-3): AI veto gate verdict
+    # + Sonnet so-what/then-what prose. Defaulted so older serialized hits (schema
+    # v2 pre-Phase-3) round-trip safely as None/False.
+    so_what: str | None = None
+    then_what: str | None = None
+    vetoed: bool = False
+    veto_reason: str | None = None
 
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> RealityCheckHit:
@@ -254,6 +261,10 @@ class RealityCheckHit:
             volume_usd=d["volume_usd"],
             liquidity_usd=d["liquidity_usd"],
             end_date=d.get("end_date"),
+            so_what=d.get("so_what"),
+            then_what=d.get("then_what"),
+            vetoed=d.get("vetoed", False),
+            veto_reason=d.get("veto_reason"),
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -270,6 +281,10 @@ class RealityCheckHit:
             "volume_usd": self.volume_usd,
             "liquidity_usd": self.liquidity_usd,
             "end_date": self.end_date,
+            "so_what": self.so_what,
+            "then_what": self.then_what,
+            "vetoed": self.vetoed,
+            "veto_reason": self.veto_reason,
         }
 
 

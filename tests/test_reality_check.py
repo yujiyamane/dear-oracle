@@ -236,3 +236,34 @@ def test_reality_check_hit_round_trip():
     assert d["source_news_id"] == "news-42"
     back = RealityCheckHit.from_dict(d)
     assert back == hit
+
+
+def test_reality_check_hit_phase3_fields_round_trip():
+    """so_what/then_what/vetoed/veto_reason (dk-do-v2-PLAN.md Phase 3) round-trip,
+    and default to None/False when absent (backward compat with pre-Phase-3 data)."""
+    hit = RealityCheckHit(
+        source_news_id="news-42", event_id="e1", event_title="t", market_id="m1",
+        outcome_label="Yes", url="https://x", prob_now=0.4, delta_24h_pp=1.2,
+        delta_7d_pp=-3.4, volume_usd=20_000.0, liquidity_usd=10_000.0,
+        end_date="2026-08-01", so_what="It could ease supply.", then_what="Rates may follow.",
+        vetoed=True, veto_reason="coincidental keyword match",
+    )
+    d = hit.to_dict()
+    assert d["so_what"] == "It could ease supply."
+    assert d["then_what"] == "Rates may follow."
+    assert d["vetoed"] is True
+    assert d["veto_reason"] == "coincidental keyword match"
+    back = RealityCheckHit.from_dict(d)
+    assert back == hit
+
+    legacy = {
+        "source_news_id": "news-1", "event_id": "e1", "event_title": "t", "market_id": "m1",
+        "outcome_label": "Yes", "url": "https://x", "prob_now": 0.4, "delta_24h_pp": None,
+        "delta_7d_pp": None, "volume_usd": 20_000.0, "liquidity_usd": 10_000.0,
+        "end_date": "2026-08-01",
+    }
+    back_legacy = RealityCheckHit.from_dict(legacy)
+    assert back_legacy.so_what is None
+    assert back_legacy.then_what is None
+    assert back_legacy.vetoed is False
+    assert back_legacy.veto_reason is None
