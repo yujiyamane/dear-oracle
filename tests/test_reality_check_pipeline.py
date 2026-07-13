@@ -190,6 +190,57 @@ def test_run_reality_check_writes_output_file(tmp_path):
     assert on_disk == result
 
 
+def test_run_reality_check_logs_per_item_summary_on_extraction_failure(caplog):
+    # A call_claude timeout inside extract_query_variants is swallowed into
+    # queries=[] (not a raised exception at this level) -- the per-item
+    # summary line is what makes a timeout-dominated run attributable to a
+    # specific news_id afterwards, instead of only a flattened stderr blob
+    # (the actual symptom hit in production on 2026-07-13: 45s Haiku CLI
+    # timeouts during a 15-news-item DO v2 run left WL-7/WL-29 with zero
+    # hits, with no per-item log line to say which stage failed).
+    def _call_claude(prompt: str, model: str) -> str:
+        raise TimeoutError("call_claude failed: timed out after 45 seconds")
+
+    news_items = [{"id": "WL-7", "title": "AI x Business Intelligence", "headlines": []}]
+    adapter = _FakeAdapter({})
+
+    with caplog.at_level("INFO", logger="core.reality_check_pipeline"):
+        result = run_reality_check(news_items, adapter=adapter, call_claude=_call_claude, today="2026-07-11")
+
+    assert result["hits_v2"] == {}
+    summary_lines = [r.message for r in caplog.records if "summary news=WL-7" in r.message]
+    assert len(summary_lines) == 1, f"expected exactly one summary line for WL-7, got: {caplog.text}"
+    assert "queries=0" in summary_lines[0]
+    assert "survivors=0" in summary_lines[0]
+
+
+def test_run_reality_check_logs_per_item_summary_with_counts():
+    news_items = [{"id": "news-1", "title": "Story with markets", "headlines": []}]
+    adapter = _FakeAdapter({"q1": [_event("e1"), _event("e2")]})
+    extraction_map = {"Story with markets": ["q1"]}
+    veto_map = {"e1": (True, "ok"), "e2": (False, "no")}
+    call_claude = _make_call_claude(extraction_map, veto_map)
+
+    import logging
+    logger = logging.getLogger("core.reality_check_pipeline")
+    records = []
+    handler = logging.Handler()
+    handler.emit = lambda record: records.append(record)
+    logger.addHandler(handler)
+    logger.setLevel(logging.INFO)
+    try:
+        run_reality_check(news_items, adapter=adapter, call_claude=call_claude, today="2026-07-11")
+    finally:
+        logger.removeHandler(handler)
+
+    summary_lines = [r.getMessage() for r in records if "summary news=news-1" in r.getMessage()]
+    assert len(summary_lines) == 1
+    assert "queries=1" in summary_lines[0]
+    assert "events=2" in summary_lines[0]
+    assert "filtered=2" in summary_lines[0]
+    assert "survivors=1" in summary_lines[0]
+
+
 def test_run_reality_check_picks_highest_probability_market_from_multi_outcome_event():
     # Regression (found via live E2E dry run against a real Strait-of-Hormuz
     # market): a multi-outcome event's markets[0] can be a stale/already-

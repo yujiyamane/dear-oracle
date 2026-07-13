@@ -124,6 +124,7 @@ def run_reality_check(
             queries = []
 
         if not queries:
+            log.info("reality_check_pipeline: summary news=%s queries=0 events=0 filtered=0 survivors=0", news_id)
             per_news_item_survivors.append([])
             continue
 
@@ -143,6 +144,14 @@ def run_reality_check(
             else:
                 log.info("reality_check_pipeline: vetoed %s for news %s (%s)", event.event_id, news_id, reason)
 
+        # Per-item summary so a run dominated by call_claude timeouts (which
+        # extraction/veto_check both swallow into an empty/False result, not
+        # an exception that surfaces per-item) is attributable to a specific
+        # news_id/stage afterwards, instead of only a flattened stderr blob.
+        log.info(
+            "reality_check_pipeline: summary news=%s queries=%d events=%d filtered=%d survivors=%d",
+            news_id, len(queries), sum(len(e) for e in event_lists), len(filtered), len(survivors),
+        )
         per_news_item_survivors.append(survivors)
 
     final = cap_markets_per_edition(per_news_item_survivors, config)
