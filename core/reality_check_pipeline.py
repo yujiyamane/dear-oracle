@@ -198,6 +198,12 @@ def _write_atomic(path: Path, data: dict) -> None:
 
 
 def _cli() -> int:
+    # A fresh `python -m core.reality_check_pipeline` process has no logging
+    # handlers configured, so log.info() (e.g. the per-news-item summary line
+    # this module emits) is silently dropped -- basicConfig here is what lets
+    # dk-synthesis.ps1's `2>&1` capture actually see it.
+    logging.basicConfig(level=logging.INFO, format="%(message)s")
+
     parser = argparse.ArgumentParser(description="DO v2 reality-check pipeline")
     parser.add_argument("--input", required=True, help="Path to news_items.json (list of news item dicts)")
     parser.add_argument("--output", required=True, help="Path to write do_hits_v2.json")

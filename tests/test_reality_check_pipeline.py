@@ -264,3 +264,48 @@ def test_run_reality_check_picks_highest_probability_market_from_multi_outcome_e
     hit = result["hits_v2"]["news-multi"][0]
     assert hit["outcome_label"] == "July 31", "must pick the higher-probability outcome, not markets[0]"
     assert hit["prob_now"] == 0.62
+
+
+def test_cli_configures_logging_so_info_lines_reach_stderr(tmp_path, monkeypatch, capsys):
+    # Regression: 2026-07-13's per-item summary log.info (added so a timeout-
+    # dominated run is attributable to a news_id) was silently dropped in
+    # production -- _cli() never called logging.basicConfig, so a fresh
+    # `python -m core.reality_check_pipeline` subprocess has zero handlers and
+    # log.info() goes nowhere. Reset root handlers to simulate that fresh-
+    # process state (pytest/caplog attach their own handler, which would mask
+    # this bug if left in place).
+    import logging
+    import sys
+
+    from core import reality_check_pipeline as rcp
+
+    root = logging.getLogger()
+    saved_handlers = root.handlers[:]
+    saved_level = root.level
+    root.handlers = []
+
+    def _fake_run(news_items, out_path=None, **kwargs):
+        rcp.log.info(
+            "reality_check_pipeline: summary news=%s queries=0 events=0 filtered=0 survivors=0",
+            "WL-7",
+        )
+        return {"hits_v2": {}}
+
+    monkeypatch.setattr(rcp, "run_reality_check", _fake_run)
+
+    input_path = tmp_path / "news_items.json"
+    input_path.write_text(json.dumps([{"id": "WL-7", "title": "x", "headlines": []}]), encoding="utf-8")
+    output_path = tmp_path / "out.json"
+    monkeypatch.setattr(
+        sys, "argv",
+        ["reality_check_pipeline", "--input", str(input_path), "--output", str(output_path)],
+    )
+
+    try:
+        rcp._cli()
+    finally:
+        root.handlers = saved_handlers
+        root.setLevel(saved_level)
+
+    captured = capsys.readouterr()
+    assert "summary news=WL-7" in captured.err, f"expected summary line in stderr, got: {captured.err!r}"
