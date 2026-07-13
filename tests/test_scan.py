@@ -56,6 +56,8 @@ def _make_event(title: str, prob: float = 0.6, prob_7d: float = 0.65, vol: float
         volume_usd=vol,
         end_date="2027-12-31",
         tags=[],
+        active=True,
+        closed=False,
     )
 
 
@@ -586,6 +588,13 @@ class TestMarketTerms:
     resulting markets are deduped by market_id.
     """
 
+    @pytest.fixture(autouse=True)
+    def _mock_veto_check(self):
+        """Default: veto gate approves everything. Individual tests override via
+        patch("core.scan.veto_check", ...) to exercise the drop path."""
+        with patch("core.scan.veto_check", return_value=(True, "mock-relevant")):
+            yield
+
     def test_market_terms_used_keywords_ignored(self):
         """MarketTerms present → both terms queried; Keywords never searched."""
         from core.scan import _query_topic
@@ -678,10 +687,10 @@ class TestMarketTerms:
         )
         event_a = Event(event_id="evt-a", event_title="Claude AI leadership",
                          markets=[shared_market], volume_usd=100_000.0,
-                         end_date="2027-12-31", tags=[])
+                         end_date="2027-12-31", tags=[], active=True, closed=False)
         event_b = Event(event_id="evt-b", event_title="Anthropic model leadership",
                          markets=[shared_market], volume_usd=100_000.0,
-                         end_date="2027-12-31", tags=[])
+                         end_date="2027-12-31", tags=[], active=True, closed=False)
 
         def fake_search(query, limit=10):
             if "claude ai" in query.lower():
@@ -700,6 +709,92 @@ class TestMarketTerms:
         assert len(result) == 1, (
             f"Same market_id returned by two terms must be deduped to one entry, got {len(result)}"
         )
+
+    def test_market_terms_drops_inactive_event(self):
+        """A market with active=False is dropped even though it textually matches the term."""
+        from core.scan import _query_topic
+        from core.models import Event, Market
+
+        m = Market(market_id="mkt-inactive", outcome_label="Yes",
+                   url="https://polymarket.com/event/inactive", prob_now=0.5)
+        inactive_event = Event(event_id="evt-inactive", event_title="Claude AI leadership",
+                                markets=[m], volume_usd=100_000.0, end_date="2027-12-31",
+                                tags=[], active=False, closed=False)
+
+        adapter = MagicMock()
+        adapter.public_search.return_value = [inactive_event]
+        topic = {
+            "topic_key": "WL-1", "topic_label": "AI",
+            "market_terms": "Claude AI", "lang": ["en-AU"],
+        }
+        result = _query_topic(topic, adapter)
+        assert result == [], "active=False event must be dropped even on a textual match"
+
+    def test_market_terms_drops_closed_event(self):
+        """A market with closed=True is dropped even though it textually matches the term."""
+        from core.scan import _query_topic
+        from core.models import Event, Market
+
+        m = Market(market_id="mkt-closed", outcome_label="Yes",
+                   url="https://polymarket.com/event/closed", prob_now=0.5)
+        closed_event = Event(event_id="evt-closed", event_title="Claude AI leadership",
+                              markets=[m], volume_usd=100_000.0, end_date="2027-12-31",
+                              tags=[], active=True, closed=True)
+
+        adapter = MagicMock()
+        adapter.public_search.return_value = [closed_event]
+        topic = {
+            "topic_key": "WL-1", "topic_label": "AI",
+            "market_terms": "Claude AI", "lang": ["en-AU"],
+        }
+        result = _query_topic(topic, adapter)
+        assert result == [], "closed=True event must be dropped even on a textual match"
+
+    def test_market_terms_veto_check_drops_candidate(self):
+        """A candidate that veto_check rejects is dropped even though it passed
+        the status filter and the keyword/term relevance match."""
+        from core.scan import _query_topic
+        event = _make_event("Claude AI leadership 2026", prob=0.5)
+
+        adapter = MagicMock()
+        adapter.public_search.return_value = [event]
+        topic = {
+            "topic_key": "WL-1", "topic_label": "AI",
+            "market_terms": "Claude AI", "lang": ["en-AU"],
+        }
+        with patch("core.scan.veto_check", return_value=(False, "unrelated market")):
+            result = _query_topic(topic, adapter)
+        assert result == [], "veto_check rejection must drop the candidate"
+
+    def test_market_terms_passes_status_and_veto_one_line_per_market(self):
+        """A candidate that passes both the status filter and veto check is
+        included, with only its single leading outcome represented (not every
+        outcome on the event)."""
+        from core.scan import _query_topic
+        from core.models import Event, Market
+
+        tail = Market(market_id="mkt-tail", outcome_label="TailCo",
+                      url="https://polymarket.com/event/tail", prob_now=0.10)
+        leader = Market(market_id="mkt-leader", outcome_label="LeaderCo",
+                        url="https://polymarket.com/event/leader", prob_now=0.70)
+        event = Event(event_id="evt-multi", event_title="Claude AI leadership 2026",
+                      markets=[tail, leader], volume_usd=100_000.0, end_date="2027-12-31",
+                      tags=[], active=True, closed=False)
+
+        adapter = MagicMock()
+        adapter.public_search.return_value = [event]
+        topic = {
+            "topic_key": "WL-1", "topic_label": "AI",
+            "market_terms": "Claude AI", "lang": ["en-AU"],
+        }
+        result = _query_topic(topic, adapter)
+        assert len(result) == 1, (
+            f"Event must contribute exactly one line (leading outcome only), got {len(result)}"
+        )
+        assert result[0]["outcome_label"] == "LeaderCo", (
+            f"Leading outcome (prob=0.70) must be the one represented, got {result[0]['outcome_label']!r}"
+        )
+        assert result[0]["prob_now"] == 0.70
 
 
 class TestE9FallbackSafety:

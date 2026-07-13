@@ -23,6 +23,7 @@ from typing import Any
 
 from core.market_history import attach_history, load_prev_history
 from core.market_notes import annotate_pool, build_note, classify_relevance
+from core.veto_gate import veto_check
 
 log = logging.getLogger(__name__)
 
@@ -247,9 +248,16 @@ def _query_by_market_terms(topic: dict, adapter: Any, terms: list[str]) -> list[
     Unlike the Keywords path (which stops at the first term with a relevant
     hit), every term is queried and relevant events are merged, deduped by
     market_id (first-seen wins).
+
+    Same hard active/unresolved filter as core.reality_check.hard_filter_events
+    (active is True and closed is False) is applied before a candidate is
+    considered, then each surviving candidate is run through the AI veto gate
+    (core.veto_gate.veto_check) — drop-only, mirrors reality_check_pipeline's
+    design law. Each event contributes at most one line: its single leading
+    (highest prob_now) outcome, not every outcome.
     """
     seen_ids: set = set()
-    markets: list[dict] = []
+    candidates: list[dict] = []
 
     for term in terms:
         try:
@@ -260,25 +268,50 @@ def _query_by_market_terms(topic: dict, adapter: Any, terms: list[str]) -> list[
 
         relevant = [e for e in events if _is_relevant_v2(topic, getattr(e, "event_title", ""))]
         for event in relevant:
-            for m in getattr(event, "markets", []):
-                prob_now = getattr(m, "prob_now", None)
-                if prob_now is None:
+            if getattr(event, "active", None) is not True or getattr(event, "closed", None) is not False:
+                continue
+            usable = [m for m in getattr(event, "markets", []) if getattr(m, "prob_now", None) is not None]
+            if not usable:
+                continue
+            market = max(usable, key=lambda m: m.prob_now)
+            market_id = getattr(market, "market_id", None)
+            if market_id is not None:
+                if market_id in seen_ids:
                     continue
-                market_id = getattr(m, "market_id", None)
-                if market_id is not None:
-                    if market_id in seen_ids:
-                        continue
-                    seen_ids.add(market_id)
-                prob_7d = getattr(m, "prob_7d_ago", None)
-                delta_7d = round(prob_now - prob_7d, 4) if (prob_7d is not None and prob_7d > 0.0) else None
-                markets.append({
-                    "title": getattr(event, "event_title", ""),
-                    "url": getattr(m, "url", ""),
-                    "prob_now": round(prob_now, 4),
-                    "delta_7d": delta_7d,
-                    "volume_usd": getattr(event, "volume_usd", None),
-                    "outcome_label": getattr(m, "outcome_label", "") or "",
-                })
+                seen_ids.add(market_id)
+            candidates.append({"event": event, "market": market})
+
+    news_item = {
+        "id": topic.get("topic_key", ""),
+        "title": topic.get("topic_label", ""),
+        "headlines": [topic.get("topic_label", "")],
+    }
+
+    markets: list[dict] = []
+    for cand in candidates:
+        event = cand["event"]
+        m = cand["market"]
+        try:
+            is_relevant_verdict, reason = veto_check(news_item, event)
+        except Exception as exc:
+            log.warning("_query_by_market_terms: veto_check failed for event %s: %s",
+                        getattr(event, "event_id", "?"), exc)
+            is_relevant_verdict, reason = False, f"veto call failed: {exc}"
+        if not is_relevant_verdict:
+            log.info("_query_by_market_terms: vetoed event %s (%s)", getattr(event, "event_id", "?"), reason)
+            continue
+
+        prob_now = m.prob_now
+        prob_7d = getattr(m, "prob_7d_ago", None)
+        delta_7d = round(prob_now - prob_7d, 4) if (prob_7d is not None and prob_7d > 0.0) else None
+        markets.append({
+            "title": getattr(event, "event_title", ""),
+            "url": getattr(m, "url", ""),
+            "prob_now": round(prob_now, 4),
+            "delta_7d": delta_7d,
+            "volume_usd": getattr(event, "volume_usd", None),
+            "outcome_label": getattr(m, "outcome_label", "") or "",
+        })
 
     markets.sort(key=lambda x: x["prob_now"], reverse=True)
     markets = markets[:3]
