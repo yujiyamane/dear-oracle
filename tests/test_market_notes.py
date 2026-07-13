@@ -52,6 +52,7 @@ def test_annotate_pool_adds_fields_and_sorts():
 
 
 def test_topic_hits_are_annotated():
+    from unittest.mock import patch
     from core import scan as scan_mod
 
     class _M:
@@ -64,13 +65,16 @@ def test_topic_hits_are_annotated():
         event_title = "Reserve Bank of Australia Decision in August"
         volume_usd = 50_000.0
         markets = [_M()]
+        active = True
+        closed = False
 
     class _Adapter:
         def public_search(self, q, limit=10):
             return [_E()]
 
     topic = {"keywords": "reserve bank australia", "topic_label": "RBA rates", "wl_id": "WL-5"}
-    markets = scan_mod._query_topic(topic, _Adapter())
+    with patch("core.scan.veto_check", return_value=(True, "mock-relevant")):
+        markets = scan_mod._query_topic(topic, _Adapter())
     assert markets and markets[0]["relevance"] == "rba"
     assert "note" in markets[0]
 

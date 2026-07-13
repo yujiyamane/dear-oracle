@@ -178,12 +178,17 @@ def _query_topic(topic: dict, adapter: Any) -> list[dict]:
     see _query_by_market_terms. Keywords is ignored in that case.
 
     Otherwise falls back to Keywords: tries each semicolon-delimited keyword in
-    order; stops at the first keyword that yields at least one relevant event.
-    NEVER falls back to top-by-volume. Returns [] if no relevant event is found
-    for any keyword.
+    order; stops at the first keyword that yields at least one relevant,
+    active/unresolved event. NEVER falls back to top-by-volume. Returns [] if
+    no such event is found for any keyword.
 
     Relevance: acronym-match OR multi-word phrase-match OR >=2 generic tokens
     (see core.relevance). Single common-word matches are rejected.
+
+    Same hard active/unresolved filter and AI veto gate (core.veto_gate.veto_check,
+    drop-only) as the MarketTerms path is applied here too, and the event
+    contributes at most one line: its single leading (highest prob_now) outcome,
+    not every outcome.
     """
     market_terms_raw = topic.get("market_terms", "")
     market_terms = [t.strip() for t in market_terms_raw.split(";") if t.strip()]
@@ -209,37 +214,53 @@ def _query_topic(topic: dict, adapter: Any) -> list[dict]:
             continue
 
         relevant = [e for e in events if _is_relevant_v2(topic, getattr(e, "event_title", ""))]
-        if not relevant:
+        active_relevant = [
+            e for e in relevant
+            if getattr(e, "active", None) is True and getattr(e, "closed", None) is False
+        ]
+        if not active_relevant:
             continue
 
-        best_event = max(relevant, key=lambda e: getattr(e, "volume_usd", None) or 0.0)
+        best_event = max(active_relevant, key=lambda e: getattr(e, "volume_usd", None) or 0.0)
         break
 
     if best_event is None:
         return []
 
-    markets = []
-    for m in getattr(best_event, "markets", []):
-        prob_now = getattr(m, "prob_now", None)
-        if prob_now is None:
-            continue
-        prob_7d = getattr(m, "prob_7d_ago", None)
-        delta_7d = round(prob_now - prob_7d, 4) if (prob_7d is not None and prob_7d > 0.0) else None
-        markets.append({
-            "title": getattr(best_event, "event_title", ""),
-            "url": getattr(m, "url", ""),
-            "prob_now": round(prob_now, 4),
-            "delta_7d": delta_7d,
-            "volume_usd": getattr(best_event, "volume_usd", None),
-            "outcome_label": getattr(m, "outcome_label", "") or "",
-        })
+    usable = [m for m in getattr(best_event, "markets", []) if getattr(m, "prob_now", None) is not None]
+    if not usable:
+        return []
+    leader = max(usable, key=lambda m: m.prob_now)
 
-    markets.sort(key=lambda x: x["prob_now"], reverse=True)
-    markets = markets[:3]
-    for m in markets:
-        m["relevance"] = classify_relevance(m.get("title", ""))
-        m["note"] = build_note(m)
-    return markets
+    news_item = {
+        "id": topic.get("topic_key", ""),
+        "title": topic.get("topic_label", ""),
+        "headlines": [topic.get("topic_label", "")],
+    }
+    try:
+        is_relevant_verdict, reason = veto_check(news_item, best_event)
+    except Exception as exc:
+        log.warning("_query_topic (Keywords): veto_check failed for event %s: %s",
+                    getattr(best_event, "event_id", "?"), exc)
+        is_relevant_verdict, reason = False, f"veto call failed: {exc}"
+    if not is_relevant_verdict:
+        log.info("_query_topic (Keywords): vetoed event %s (%s)", getattr(best_event, "event_id", "?"), reason)
+        return []
+
+    prob_now = leader.prob_now
+    prob_7d = getattr(leader, "prob_7d_ago", None)
+    delta_7d = round(prob_now - prob_7d, 4) if (prob_7d is not None and prob_7d > 0.0) else None
+    line = {
+        "title": getattr(best_event, "event_title", ""),
+        "url": getattr(leader, "url", ""),
+        "prob_now": round(prob_now, 4),
+        "delta_7d": delta_7d,
+        "volume_usd": getattr(best_event, "volume_usd", None),
+        "outcome_label": getattr(leader, "outcome_label", "") or "",
+    }
+    line["relevance"] = classify_relevance(line.get("title", ""))
+    line["note"] = build_note(line)
+    return [line]
 
 
 def _query_by_market_terms(topic: dict, adapter: Any, terms: list[str]) -> list[dict]:
