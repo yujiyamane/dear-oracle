@@ -172,13 +172,23 @@ from core.relevance import is_relevant as _is_relevant_v2
 def _query_topic(topic: dict, adapter: Any) -> list[dict]:
     """Search Polymarket for a topic via /public-search + relevance guard.
 
-    Tries each semicolon-delimited keyword in order; stops at the first keyword
-    that yields at least one relevant event. NEVER falls back to top-by-volume.
-    Returns [] if no relevant event is found for any keyword.
+    MarketTerms-first: if topic.market_terms (semicolon-delimited) is non-empty,
+    every term is queried and relevant results are merged (dedup by market_id) —
+    see _query_by_market_terms. Keywords is ignored in that case.
+
+    Otherwise falls back to Keywords: tries each semicolon-delimited keyword in
+    order; stops at the first keyword that yields at least one relevant event.
+    NEVER falls back to top-by-volume. Returns [] if no relevant event is found
+    for any keyword.
 
     Relevance: acronym-match OR multi-word phrase-match OR >=2 generic tokens
     (see core.relevance). Single common-word matches are rejected.
     """
+    market_terms_raw = topic.get("market_terms", "")
+    market_terms = [t.strip() for t in market_terms_raw.split(";") if t.strip()]
+    if market_terms:
+        return _query_by_market_terms(topic, adapter, market_terms)
+
     keywords_raw = topic.get("keywords", "")
     keywords = [k.strip() for k in keywords_raw.split(";") if k.strip()]
     if not keywords:
@@ -222,6 +232,53 @@ def _query_topic(topic: dict, adapter: Any) -> list[dict]:
             "volume_usd": getattr(best_event, "volume_usd", None),
             "outcome_label": getattr(m, "outcome_label", "") or "",
         })
+
+    markets.sort(key=lambda x: x["prob_now"], reverse=True)
+    markets = markets[:3]
+    for m in markets:
+        m["relevance"] = classify_relevance(m.get("title", ""))
+        m["note"] = build_note(m)
+    return markets
+
+
+def _query_by_market_terms(topic: dict, adapter: Any, terms: list[str]) -> list[dict]:
+    """Search Polymarket via MarketTerms: one query per term, OR-joined.
+
+    Unlike the Keywords path (which stops at the first term with a relevant
+    hit), every term is queried and relevant events are merged, deduped by
+    market_id (first-seen wins).
+    """
+    seen_ids: set = set()
+    markets: list[dict] = []
+
+    for term in terms:
+        try:
+            events = adapter.public_search(term, limit=10)
+        except Exception as exc:
+            log.warning("Polymarket public_search failed for '%s': %s", term, exc)
+            continue
+
+        relevant = [e for e in events if _is_relevant_v2(topic, getattr(e, "event_title", ""))]
+        for event in relevant:
+            for m in getattr(event, "markets", []):
+                prob_now = getattr(m, "prob_now", None)
+                if prob_now is None:
+                    continue
+                market_id = getattr(m, "market_id", None)
+                if market_id is not None:
+                    if market_id in seen_ids:
+                        continue
+                    seen_ids.add(market_id)
+                prob_7d = getattr(m, "prob_7d_ago", None)
+                delta_7d = round(prob_now - prob_7d, 4) if (prob_7d is not None and prob_7d > 0.0) else None
+                markets.append({
+                    "title": getattr(event, "event_title", ""),
+                    "url": getattr(m, "url", ""),
+                    "prob_now": round(prob_now, 4),
+                    "delta_7d": delta_7d,
+                    "volume_usd": getattr(event, "volume_usd", None),
+                    "outcome_label": getattr(m, "outcome_label", "") or "",
+                })
 
     markets.sort(key=lambda x: x["prob_now"], reverse=True)
     markets = markets[:3]

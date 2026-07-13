@@ -580,6 +580,128 @@ class TestE8RelevanceGuard:
 # E9 — Fallback safety (DO-5.2)
 # ---------------------------------------------------------------------------
 
+class TestMarketTerms:
+    """MarketTerms-first search: topic.market_terms (semicolon-split) takes priority
+    over topic.keywords when present; every term is queried (no early stop) and
+    resulting markets are deduped by market_id.
+    """
+
+    def test_market_terms_used_keywords_ignored(self):
+        """MarketTerms present → both terms queried; Keywords never searched."""
+        from core.scan import _query_topic
+        event = _make_event("Claude AI market leadership 2026", prob=0.4)
+        queried = []
+
+        def fake_search(query, limit=10):
+            queried.append(query)
+            if "claude ai" in query.lower() or "anthropic model" in query.lower():
+                return [event]
+            return []
+
+        adapter = MagicMock()
+        adapter.public_search.side_effect = fake_search
+        topic = {
+            "topic_key": "WL-1", "topic_label": "AI",
+            "keywords": "cheese;wine",
+            "market_terms": "Claude AI;Anthropic model",
+            "lang": ["en-AU"],
+        }
+        result = _query_topic(topic, adapter)
+        assert len(result) > 0, "MarketTerms search must return results"
+        assert any("claude ai" in q.lower() for q in queried), "Claude AI term must be queried"
+        assert any("anthropic model" in q.lower() for q in queried), "Anthropic model term must be queried"
+        assert not any("cheese" in q.lower() or "wine" in q.lower() for q in queried), (
+            "Keywords must be ignored when MarketTerms is present"
+        )
+
+    def test_missing_market_terms_falls_back_to_keywords(self):
+        """MarketTerms absent → behaves exactly like the pre-existing Keywords path."""
+        from core.scan import _query_topic
+        rba_event = _make_event("RBA cuts rates 2026", prob=0.55)
+
+        def fake_search(query, limit=10):
+            if "rba" in query.lower():
+                return [rba_event]
+            return []
+
+        adapter = MagicMock()
+        adapter.public_search.side_effect = fake_search
+        topic = {
+            "topic_key": "WL-1", "topic_label": "Interest Rates",
+            "keywords": "interest rates;RBA", "lang": ["en-AU"],
+        }
+        result = _query_topic(topic, adapter)
+        assert len(result) > 0, "Should fall back to Keywords search and find RBA hit"
+
+    def test_empty_market_terms_falls_back_to_keywords(self):
+        """MarketTerms present but empty string → falls back to Keywords."""
+        from core.scan import _query_topic
+        rba_event = _make_event("RBA cuts rates 2026", prob=0.55)
+        adapter = MagicMock()
+        adapter.public_search.return_value = [rba_event]
+        topic = {
+            "topic_key": "WL-1", "topic_label": "Interest Rates",
+            "keywords": "RBA", "market_terms": "", "lang": ["en-AU"],
+        }
+        result = _query_topic(topic, adapter)
+        assert len(result) > 0, "Empty MarketTerms must fall back to Keywords"
+
+    def test_market_terms_whitespace_and_empty_segments_trimmed(self):
+        """MarketTerms with stray whitespace/semicolons splits into trimmed, non-empty terms."""
+        from core.scan import _query_topic
+        event = _make_event("Claude AI benchmark 2026", prob=0.5)
+        queried = []
+
+        def fake_search(query, limit=10):
+            queried.append(query)
+            return [event]
+
+        adapter = MagicMock()
+        adapter.public_search.side_effect = fake_search
+        topic = {
+            "topic_key": "WL-1", "topic_label": "AI",
+            "market_terms": " Claude AI ; ;Anthropic ", "lang": ["en-AU"],
+        }
+        _query_topic(topic, adapter)
+        assert queried == ["Claude AI", "Anthropic"], (
+            f"Expected trimmed, non-empty terms only; got {queried}"
+        )
+
+    def test_market_terms_dedup_by_market_id(self):
+        """Results from multiple MarketTerms are deduped by market id."""
+        from core.scan import _query_topic
+        from core.models import Event, Market
+
+        shared_market = Market(
+            market_id="mkt-shared", outcome_label="Yes",
+            url="https://polymarket.com/event/shared", prob_now=0.42,
+        )
+        event_a = Event(event_id="evt-a", event_title="Claude AI leadership",
+                         markets=[shared_market], volume_usd=100_000.0,
+                         end_date="2027-12-31", tags=[])
+        event_b = Event(event_id="evt-b", event_title="Anthropic model leadership",
+                         markets=[shared_market], volume_usd=100_000.0,
+                         end_date="2027-12-31", tags=[])
+
+        def fake_search(query, limit=10):
+            if "claude ai" in query.lower():
+                return [event_a]
+            if "anthropic model" in query.lower():
+                return [event_b]
+            return []
+
+        adapter = MagicMock()
+        adapter.public_search.side_effect = fake_search
+        topic = {
+            "topic_key": "WL-1", "topic_label": "AI",
+            "market_terms": "Claude AI;Anthropic model", "lang": ["en-AU"],
+        }
+        result = _query_topic(topic, adapter)
+        assert len(result) == 1, (
+            f"Same market_id returned by two terms must be deduped to one entry, got {len(result)}"
+        )
+
+
 class TestE9FallbackSafety:
     """Notion failure must not write sample-derived data to the prod path."""
 
